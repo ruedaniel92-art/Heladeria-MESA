@@ -1,6 +1,15 @@
 const express = require("express");
 const app = express();
 
+app.use((req, res, next) => {
+  if (req.url === "/api") {
+    req.url = "/";
+  } else if (req.url.startsWith("/api/")) {
+    req.url = req.url.slice(4);
+  }
+  next();
+});
+
 app.use(express.json());
 
 app.use((err, req, res, next) => {
