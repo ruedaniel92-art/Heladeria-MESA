@@ -1798,7 +1798,21 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
   <script>
-    const apiUrl = 'http://127.0.0.1:3000/productos';
+    const LOCAL_API_BASE = 'http://127.0.0.1:3000';
+    const API_BASE = (() => {
+      const { protocol, hostname, port, origin } = window.location;
+      const isLocalFrontend = (hostname === '127.0.0.1' || hostname === 'localhost') && port !== '3000';
+      if (protocol === 'file:' || isLocalFrontend) {
+        return LOCAL_API_BASE;
+      }
+      return `${origin}/api`;
+    })();
+
+    function buildApiUrl(path) {
+      return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+    }
+
+    const apiUrl = buildApiUrl('/productos');
     const statusText = document.getElementById('status-text');
     const loadingText = document.createElement('p');
     loadingText.className = 'loading';
@@ -3251,7 +3265,7 @@
 
     async function fetchCompras() {
       try {
-        const response = await fetch('http://127.0.0.1:3000/compras', { cache: 'no-cache' });
+        const response = await fetch(buildApiUrl('/compras'), { cache: 'no-cache' });
         if (!response.ok) throw new Error('No se pudieron cargar las compras.');
         state.purchases = await response.json();
       } catch (error) {
@@ -3261,7 +3275,7 @@
     }
     async function fetchToppings() {
       try {
-        const response = await fetch('http://127.0.0.1:3000/toppings', { cache: 'no-cache' });
+        const response = await fetch(buildApiUrl('/toppings'), { cache: 'no-cache' });
         if (!response.ok) throw new Error('No se pudieron cargar los toppings.');
         state.toppings = await response.json();
       } catch (error) {
@@ -3669,7 +3683,7 @@
 
     async function fetchVentas() {
       try {
-        const response = await fetch('http://127.0.0.1:3000/ventas', { cache: 'no-cache' });
+        const response = await fetch(buildApiUrl('/ventas'), { cache: 'no-cache' });
         if (!response.ok) throw new Error('No se pudieron cargar las ventas.');
         state.sales = await response.json();
         updateNextSaleDocumentNumber();
@@ -3682,7 +3696,7 @@
 
     async function deleteProduct(productId) {
       try {
-        const response = await fetch(`http://127.0.0.1:3000/productos/${encodeURIComponent(productId)}`, {
+        const response = await fetch(buildApiUrl(`/productos/${encodeURIComponent(productId)}`), {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' }
         });
@@ -3904,7 +3918,7 @@
 
     async function deleteFlavor(flavorId) {
       try {
-        const response = await fetch(`http://127.0.0.1:3000/sabores/${encodeURIComponent(flavorId)}`, {
+        const response = await fetch(buildApiUrl(`/sabores/${encodeURIComponent(flavorId)}`), {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' }
         });
@@ -3945,7 +3959,7 @@
 
     async function deleteTopping(toppingId) {
       try {
-        const response = await fetch(`http://127.0.0.1:3000/toppings/${encodeURIComponent(toppingId)}`, {
+        const response = await fetch(buildApiUrl(`/toppings/${encodeURIComponent(toppingId)}`), {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' }
         });
@@ -4077,7 +4091,7 @@
 
     async function closeBucketControl(bucketId) {
       try {
-        const response = await fetch(`http://127.0.0.1:3000/baldes-control/${encodeURIComponent(bucketId)}/cerrar`, {
+        const response = await fetch(buildApiUrl(`/baldes-control/${encodeURIComponent(bucketId)}/cerrar`), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fechaCierre: new Date().toISOString() })
@@ -4178,7 +4192,7 @@
 
     async function fetchSabores() {
       try {
-        const response = await fetch('http://127.0.0.1:3000/sabores', { cache: 'no-cache' });
+        const response = await fetch(buildApiUrl('/sabores'), { cache: 'no-cache' });
         if (!response.ok) throw new Error('No se pudieron cargar los sabores.');
         const sabores = await response.json();
         state.sabores = Array.isArray(sabores) ? sabores : [];
@@ -4193,7 +4207,7 @@
 
     async function fetchToppings() {
       try {
-        const response = await fetch('http://127.0.0.1:3000/toppings', { cache: 'no-cache' });
+        const response = await fetch(buildApiUrl('/toppings'), { cache: 'no-cache' });
         if (!response.ok) throw new Error('No se pudieron cargar los toppings.');
         const toppings = await response.json();
         state.toppings = Array.isArray(toppings) ? toppings : [];
@@ -4208,7 +4222,7 @@
 
     async function fetchBucketControls() {
       try {
-        const response = await fetch('http://127.0.0.1:3000/baldes-control', { cache: 'no-cache' });
+        const response = await fetch(buildApiUrl('/baldes-control'), { cache: 'no-cache' });
         if (!response.ok) throw new Error('No se pudo cargar el control de baldes.');
         const bucketControls = await response.json();
         state.bucketControls = Array.isArray(bucketControls) ? bucketControls : [];
@@ -4268,7 +4282,7 @@
 
     function buildConnectionErrorMessage(actionLabel, error) {
       if (error instanceof TypeError && /fetch/i.test(String(error.message || ''))) {
-        return `No se pudo ${actionLabel}. Verifica que el backend en http://127.0.0.1:3000 esté corriendo.`;
+        return `No se pudo ${actionLabel}. Verifica que la API esté disponible en ${API_BASE}.`;
       }
       return `No se pudo ${actionLabel}. ${error.message}`;
     }
@@ -4388,7 +4402,7 @@
 
       try {
         flavorStatus.textContent = editingFlavorId ? 'Actualizando sabor...' : 'Agregando sabor...';
-        const response = await fetch('http://127.0.0.1:3000/sabores', {
+        const response = await fetch(buildApiUrl('/sabores'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -4424,7 +4438,7 @@
 
       try {
         toppingStatus.textContent = editingToppingId ? 'Actualizando topping...' : 'Agregando topping...';
-        const response = await fetch('http://127.0.0.1:3000/toppings', {
+        const response = await fetch(buildApiUrl('/toppings'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -4459,7 +4473,7 @@
 
       try {
         bucketStatus.textContent = 'Abriendo balde...';
-        const response = await fetch('http://127.0.0.1:3000/baldes-control/abrir', {
+        const response = await fetch(buildApiUrl('/baldes-control/abrir'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -4544,7 +4558,7 @@
 
         purchaseStatus.className = 'status';
         purchaseStatus.textContent = 'Registrando compra...';
-        const response = await fetch('http://127.0.0.1:3000/compras', {
+        const response = await fetch(buildApiUrl('/compras'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -4751,7 +4765,7 @@
           return;
         }
 
-        const response = await fetch('http://127.0.0.1:3000/ventas', {
+        const response = await fetch(buildApiUrl('/ventas'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

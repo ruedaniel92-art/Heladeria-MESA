@@ -949,10 +949,16 @@ app.get("/inventario", (req, res) => {
   res.json({ totalProductos, totalStock, lowStockCount, productos });
 });
 
-// Iniciar servidor
-app.listen(3000, () => {
-  console.log("Servidor en http://localhost:3000");
-});
+module.exports = app;
+
+// Iniciar servidor local
+if (require.main === module) {
+  const port = Number(process.env.PORT) || 3000;
+  app.listen(port, () => {
+    console.log(`Servidor en http://localhost:${port}`);
+  });
+}
+
 app.get("/crear", (req, res) => {
   const producto = {
     id: String(nextProductId++),
