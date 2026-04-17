@@ -1,5 +1,15 @@
 const express = require("express");
+const db = require("./firebase");
 const app = express();
+
+const COLLECTIONS = {
+  productos: "productos",
+  compras: "compras",
+  ventas: "ventas",
+  sabores: "sabores",
+  toppings: "toppings",
+  baldesControl: "baldesControl"
+};
 
 app.use((req, res, next) => {
   if (req.url === "/api") {
@@ -37,10 +47,83 @@ let ventas = [];
 let sabores = [];
 let toppings = [];
 let baldesControl = [];
-let nextProductId = 1;
-let nextFlavorId = 1;
-let nextToppingId = 1;
-let nextBucketControlId = 1;
+
+function sanitizeFirestoreValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeFirestoreValue);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.entries(value).reduce((accumulator, [key, nestedValue]) => {
+      if (nestedValue !== undefined) {
+        accumulator[key] = sanitizeFirestoreValue(nestedValue);
+      }
+      return accumulator;
+    }, {});
+  }
+
+  return value;
+}
+
+async function loadCollection(collectionName) {
+  const snapshot = await db.collection(collectionName).get();
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+async function hydrateStore() {
+  [productos, compras, ventas, sabores, toppings, baldesControl] = await Promise.all([
+    loadCollection(COLLECTIONS.productos),
+    loadCollection(COLLECTIONS.compras),
+    loadCollection(COLLECTIONS.ventas),
+    loadCollection(COLLECTIONS.sabores),
+    loadCollection(COLLECTIONS.toppings),
+    loadCollection(COLLECTIONS.baldesControl)
+  ]);
+}
+
+function createDocId(collectionName) {
+  return db.collection(collectionName).doc().id;
+}
+
+async function saveRecord(collectionName, record) {
+  const id = String(record.id || createDocId(collectionName));
+  const payload = sanitizeFirestoreValue({ ...record, id });
+  await db.collection(collectionName).doc(id).set(payload);
+  return payload;
+}
+
+async function deleteRecord(collectionName, id) {
+  await db.collection(collectionName).doc(String(id)).delete();
+}
+
+async function commitBatch(operations) {
+  const batch = db.batch();
+
+  operations.forEach(operation => {
+    if (!operation) return;
+
+    const docRef = db.collection(operation.collection).doc(String(operation.id));
+    if (operation.type === 'delete') {
+      batch.delete(docRef);
+      return;
+    }
+
+    batch.set(docRef, sanitizeFirestoreValue({ ...operation.data, id: String(operation.id) }));
+  });
+
+  await batch.commit();
+}
+
+function asyncHandler(handler) {
+  return (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(error => {
+      console.error(error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Ocurrió un error al comunicarse con Firestore." });
+      }
+    });
+  };
+}
 
 function buildNextDocumentNumber(records, prefix) {
   const maxSequence = records.reduce((maxValue, record) => {
@@ -176,7 +259,8 @@ app.get("/", (req, res) => {
 });
 
 // Crear producto
-app.post("/productos", (req, res) => {
+app.post("/productos", asyncHandler(async (req, res) => {
+  await hydrateStore();
   const { nombre, precio, tipo, type, stockMin, medida, ingredientes, stock, originalId, originalName, controlSabores, rendimientoPorCompra, pelotasPorUnidad, modoControl, inventoryMode } = req.body;
   const rawType = (tipo || type || '').trim();
   const normalizedType = normalizeProductType(rawType);
@@ -275,6 +359,7 @@ app.post("/productos", (req, res) => {
     editingProduct.controlSabores = newProductData.controlSabores;
     editingProduct.rendimientoPorCompra = newProductData.rendimientoPorCompra;
     editingProduct.pelotasPorUnidad = newProductData.pelotasPorUnidad;
+    await saveRecord(COLLECTIONS.productos, editingProduct);
     return res.status(200).json({ message: "Producto actualizado.", producto: editingProduct });
   }
 
@@ -284,21 +369,25 @@ app.post("/productos", (req, res) => {
 
   const producto = {
     ...newProductData,
-    id: String(nextProductId++)
+    id: createDocId(COLLECTIONS.productos)
   };
   productos.push(producto);
+  await saveRecord(COLLECTIONS.productos, producto);
   res.status(201).json({ message: "Producto creado.", producto });
-});
+}));
 
-app.get("/sabores", (req, res) => {
+app.get("/sabores", asyncHandler(async (req, res) => {
+  await hydrateStore();
   res.json(sabores);
-});
+}));
 
-app.get("/toppings", (req, res) => {
+app.get("/toppings", asyncHandler(async (req, res) => {
+  await hydrateStore();
   res.json(toppings);
-});
+}));
 
-app.post("/sabores", (req, res) => {
+app.post("/sabores", asyncHandler(async (req, res) => {
+  await hydrateStore();
   const normalizedName = normalizeFlavorName(req.body?.nombre);
   const originalId = req.body?.originalId !== undefined && req.body?.originalId !== null ? String(req.body.originalId) : '';
   const materiaPrimaId = req.body?.materiaPrimaId !== undefined && req.body?.materiaPrimaId !== null ? String(req.body.materiaPrimaId) : '';
@@ -322,6 +411,7 @@ app.post("/sabores", (req, res) => {
     editingFlavor.nombre = normalizedName;
     editingFlavor.materiaPrimaId = materiaPrima.id;
     editingFlavor.materiaPrimaNombre = materiaPrima.nombre;
+    await saveRecord(COLLECTIONS.sabores, editingFlavor);
     return res.status(200).json({ message: "Sabor actualizado.", sabor: editingFlavor });
   }
 
@@ -330,17 +420,19 @@ app.post("/sabores", (req, res) => {
   }
 
   const sabor = {
-    id: String(nextFlavorId++),
+    id: createDocId(COLLECTIONS.sabores),
     nombre: normalizedName,
     materiaPrimaId: materiaPrima.id,
     materiaPrimaNombre: materiaPrima.nombre
   };
 
   sabores.push(sabor);
+  await saveRecord(COLLECTIONS.sabores, sabor);
   res.status(201).json({ message: "Sabor creado.", sabor });
-});
+}));
 
-app.post("/toppings", (req, res) => {
+app.post("/toppings", asyncHandler(async (req, res) => {
+  await hydrateStore();
   const normalizedName = normalizeFlavorName(req.body?.nombre);
   const originalId = req.body?.originalId !== undefined && req.body?.originalId !== null ? String(req.body.originalId) : '';
   const materiaPrimaId = req.body?.materiaPrimaId !== undefined && req.body?.materiaPrimaId !== null ? String(req.body.materiaPrimaId) : '';
@@ -364,6 +456,7 @@ app.post("/toppings", (req, res) => {
     editingTopping.nombre = normalizedName;
     editingTopping.materiaPrimaId = materiaPrima.id;
     editingTopping.materiaPrimaNombre = materiaPrima.nombre;
+    await saveRecord(COLLECTIONS.toppings, editingTopping);
     return res.status(200).json({ message: "Topping actualizado.", topping: editingTopping });
   }
 
@@ -372,21 +465,24 @@ app.post("/toppings", (req, res) => {
   }
 
   const topping = {
-    id: String(nextToppingId++),
+    id: createDocId(COLLECTIONS.toppings),
     nombre: normalizedName,
     materiaPrimaId: materiaPrima.id,
     materiaPrimaNombre: materiaPrima.nombre
   };
 
   toppings.push(topping);
+  await saveRecord(COLLECTIONS.toppings, topping);
   res.status(201).json({ message: "Topping creado.", topping });
-});
+}));
 
-app.get("/baldes-control", (req, res) => {
+app.get("/baldes-control", asyncHandler(async (req, res) => {
+  await hydrateStore();
   res.json(baldesControl);
-});
+}));
 
-app.post("/baldes-control/abrir", (req, res) => {
+app.post("/baldes-control/abrir", asyncHandler(async (req, res) => {
+  await hydrateStore();
   const saborId = req.body?.saborId !== undefined && req.body?.saborId !== null ? String(req.body.saborId) : '';
   const observacion = String(req.body?.observacion || '').trim();
   const fechaApertura = req.body?.fechaApertura ? new Date(req.body.fechaApertura) : new Date();
@@ -419,7 +515,7 @@ app.post("/baldes-control/abrir", (req, res) => {
   }
 
   const bucket = {
-    id: String(nextBucketControlId++),
+    id: createDocId(COLLECTIONS.baldesControl),
     saborId: sabor.id,
     saborNombre: sabor.nombre,
     materiaPrimaId: sabor.materiaPrimaId,
@@ -434,10 +530,12 @@ app.post("/baldes-control/abrir", (req, res) => {
   };
 
   baldesControl.push(bucket);
+  await saveRecord(COLLECTIONS.baldesControl, bucket);
   res.status(201).json({ message: "Balde abierto correctamente.", balde: bucket });
-});
+}));
 
-app.post("/baldes-control/:id/cerrar", (req, res) => {
+app.post("/baldes-control/:id/cerrar", asyncHandler(async (req, res) => {
+  await hydrateStore();
   const { id } = req.params;
   const bucket = baldesControl.find(item => String(item.id) === String(id));
   if (!bucket) {
@@ -458,16 +556,19 @@ app.post("/baldes-control/:id/cerrar", (req, res) => {
   bucket.fechaCierre = fechaCierre.toISOString();
   bucket.observacionCierre = observacion || null;
 
+  await saveRecord(COLLECTIONS.baldesControl, bucket);
   res.json({ message: "Balde cerrado correctamente.", balde: bucket });
-});
+}));
 
 // Ver productos
-app.get("/productos", (req, res) => {
+app.get("/productos", asyncHandler(async (req, res) => {
+  await hydrateStore();
   res.json(productos);
-});
+}));
 
 // Registrar compra
-app.post("/compras", (req, res) => {
+app.post("/compras", asyncHandler(async (req, res) => {
+  await hydrateStore();
   const { documento, proveedor, fecha, items, id, nombre, cantidad, costo, paymentType, paymentMethod, dueDate, cashOut, cashReceived, paymentReference } = req.body;
   const invoiceItems = Array.isArray(items)
     ? items
@@ -559,6 +660,7 @@ app.post("/compras", (req, res) => {
   });
 
   const compra = {
+    id: createDocId(COLLECTIONS.compras),
     documento: String(documento).trim(),
     proveedor: String(proveedor).trim(),
     fecha: parsedDate.toISOString(),
@@ -572,11 +674,19 @@ app.post("/compras", (req, res) => {
     items: validatedItems
   };
   compras.push(compra);
+  await commitBatch([
+    ...validatedItems.map(item => {
+      const producto = productos.find(p => String(p.id) === String(item.id));
+      return producto ? { type: 'set', collection: COLLECTIONS.productos, id: producto.id, data: producto } : null;
+    }),
+    { type: 'set', collection: COLLECTIONS.compras, id: compra.id, data: compra }
+  ]);
   res.status(201).json({ message: "Compra registrada.", compra });
-});
+}));
 
 // Registrar venta
-app.post("/ventas", (req, res) => {
+app.post("/ventas", asyncHandler(async (req, res) => {
+  await hydrateStore();
   const { documento, cliente, fecha, items, id, nombre, cantidad, precio, paymentType, paymentMethod, dueDate, cashReceived, cashChange, paymentReference } = req.body;
   const invoiceItems = Array.isArray(items)
     ? items
@@ -872,6 +982,7 @@ app.post("/ventas", (req, res) => {
   });
 
   const venta = {
+    id: createDocId(COLLECTIONS.ventas),
     documento: normalizedDocument,
     cliente: String(cliente).trim(),
     fecha: parsedDate.toISOString(),
@@ -884,21 +995,29 @@ app.post("/ventas", (req, res) => {
     items: validatedItems
   };
   ventas.push(venta);
+  await commitBatch([
+    ...productos.map(producto => ({ type: 'set', collection: COLLECTIONS.productos, id: producto.id, data: producto })),
+    ...baldesControl.map(bucket => ({ type: 'set', collection: COLLECTIONS.baldesControl, id: bucket.id, data: bucket })),
+    { type: 'set', collection: COLLECTIONS.ventas, id: venta.id, data: venta }
+  ]);
   res.status(201).json({ message: "Venta registrada.", venta });
-});
+}));
 
 // Historial de compras
-app.get("/compras", (req, res) => {
+app.get("/compras", asyncHandler(async (req, res) => {
+  await hydrateStore();
   res.json(compras);
-});
+}));
 
 // Historial de ventas
-app.get("/ventas", (req, res) => {
+app.get("/ventas", asyncHandler(async (req, res) => {
+  await hydrateStore();
   res.json(ventas);
-});
+}));
 
 // Eliminar producto si no tiene movimientos vinculados
-app.delete("/productos/:id", (req, res) => {
+app.delete("/productos/:id", asyncHandler(async (req, res) => {
+  await hydrateStore();
   const { id } = req.params;
   const producto = productos.find(p => String(p.id) === String(id));
   if (!producto) {
@@ -914,10 +1033,12 @@ app.delete("/productos/:id", (req, res) => {
   }
 
   productos = productos.filter(p => String(p.id) !== String(id));
+  await deleteRecord(COLLECTIONS.productos, id);
   res.json({ message: "Producto eliminado con éxito." });
-});
+}));
 
-app.delete("/sabores/:id", (req, res) => {
+app.delete("/sabores/:id", asyncHandler(async (req, res) => {
+  await hydrateStore();
   const { id } = req.params;
   const sabor = sabores.find(item => String(item.id) === String(id));
   if (!sabor) {
@@ -931,10 +1052,12 @@ app.delete("/sabores/:id", (req, res) => {
   }
 
   sabores = sabores.filter(item => String(item.id) !== String(id));
+  await deleteRecord(COLLECTIONS.sabores, id);
   res.json({ message: "Sabor eliminado con éxito." });
-});
+}));
 
-app.delete("/toppings/:id", (req, res) => {
+app.delete("/toppings/:id", asyncHandler(async (req, res) => {
+  await hydrateStore();
   const { id } = req.params;
   const topping = toppings.find(item => String(item.id) === String(id));
   if (!topping) {
@@ -947,16 +1070,18 @@ app.delete("/toppings/:id", (req, res) => {
   }
 
   toppings = toppings.filter(item => String(item.id) !== String(id));
+  await deleteRecord(COLLECTIONS.toppings, id);
   res.json({ message: "Topping eliminado con éxito." });
-});
+}));
 
 // Resumen de inventario
-app.get("/inventario", (req, res) => {
+app.get("/inventario", asyncHandler(async (req, res) => {
+  await hydrateStore();
   const totalProductos = productos.length;
   const totalStock = productos.reduce((sum, item) => sum + Number(item.stock || 0), 0);
   const lowStockCount = productos.filter(item => Number(item.stock || 0) <= Number(item.stockMin || 0)).length;
   res.json({ totalProductos, totalStock, lowStockCount, productos });
-});
+}));
 
 module.exports = app;
 
@@ -968,9 +1093,9 @@ if (require.main === module) {
   });
 }
 
-app.get("/crear", (req, res) => {
+app.get("/crear", asyncHandler(async (req, res) => {
   const producto = {
-    id: String(nextProductId++),
+    id: createDocId(COLLECTIONS.productos),
     nombre: "Helado de fresa",
     precio: 3,
     stock: 15,
@@ -979,5 +1104,6 @@ app.get("/crear", (req, res) => {
   };
 
   productos.push(producto);
+  await saveRecord(COLLECTIONS.productos, producto);
   res.send("Producto creado desde navegador 🍦");
-});
+}));
