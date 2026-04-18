@@ -209,6 +209,20 @@
       margin-top: 4px;
     }
 
+    .auth-password-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+      color: var(--muted);
+      user-select: none;
+    }
+
+    .auth-password-toggle input {
+      width: auto;
+      margin: 0;
+    }
+
     .auth-status {
       margin: 0;
       min-height: 22px;
@@ -264,6 +278,44 @@
 
     .sidebar-session-meta {
       font-size: 0.84rem;
+      color: var(--muted);
+    }
+
+    .environment-indicator {
+      position: fixed;
+      top: 16px;
+      right: 18px;
+      z-index: 260;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 118px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+      color: var(--text);
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      backdrop-filter: blur(10px);
+    }
+
+    .environment-indicator.is-test {
+      background: rgba(22, 163, 74, 0.12);
+      border-color: rgba(22, 163, 74, 0.24);
+      color: #166534;
+    }
+
+    .environment-indicator.is-production {
+      background: rgba(180, 83, 9, 0.14);
+      border-color: rgba(180, 83, 9, 0.24);
+      color: #9a3412;
+    }
+
+    .environment-indicator.is-loading {
       color: var(--muted);
     }
 
@@ -2661,6 +2713,24 @@
       border-color: rgba(148, 163, 184, 0.14);
     }
 
+    body.theme-dark .environment-indicator {
+      background: rgba(15, 23, 42, 0.92);
+      border-color: rgba(148, 163, 184, 0.18);
+      box-shadow: 0 18px 34px rgba(2, 6, 23, 0.34);
+    }
+
+    body.theme-dark .environment-indicator.is-test {
+      background: rgba(20, 83, 45, 0.92);
+      border-color: rgba(74, 222, 128, 0.2);
+      color: #bbf7d0;
+    }
+
+    body.theme-dark .environment-indicator.is-production {
+      background: rgba(124, 45, 18, 0.92);
+      border-color: rgba(251, 146, 60, 0.2);
+      color: #fed7aa;
+    }
+
     body.theme-dark .sale-print-actions {
       background: rgba(15, 23, 42, 0.86);
       border-color: rgba(148, 163, 184, 0.2);
@@ -2987,6 +3057,7 @@
   </style>
 </head>
 <body class="auth-locked">
+  <div id="environment-indicator" class="environment-indicator is-loading">Detectando entorno...</div>
   <div id="auth-shell" class="auth-shell">
     <div class="auth-card">
       <section class="auth-hero">
@@ -3015,6 +3086,10 @@
             <label for="auth-login-password">Contraseña</label>
             <input type="password" id="auth-login-password" placeholder="Tu contraseña" required />
           </div>
+          <label class="auth-password-toggle" for="auth-login-show-password">
+            <input type="checkbox" id="auth-login-show-password" />
+            <span>Mostrar contraseña</span>
+          </label>
           <button type="submit">Entrar</button>
         </form>
 
@@ -4344,7 +4419,19 @@
       const pathname = String(resolvedUrl.pathname || '');
       const matchesCurrentOrigin = currentOrigin && resolvedUrl.origin === currentOrigin.origin;
       const matchesApiOrigin = currentApiBase && resolvedUrl.origin === currentApiBase.origin;
-      return (matchesCurrentOrigin || matchesApiOrigin) && (pathname === '/health' || pathname.startsWith('/api/') || pathname.startsWith('/auth/') || pathname === '/api' || pathname === '/auth');
+      if (!(matchesCurrentOrigin || matchesApiOrigin)) {
+        return false;
+      }
+
+      if (pathname === '/health' || pathname === '/api' || pathname === '/auth' || pathname.startsWith('/api/') || pathname.startsWith('/auth/')) {
+        return true;
+      }
+
+      if (pathname === '/' || pathname === '/index.html') {
+        return false;
+      }
+
+      return !/\.[a-z0-9]+$/i.test(pathname);
     }
 
     window.fetch = async (input, init = {}) => {
@@ -4382,6 +4469,29 @@
       return true;
     }
 
+    async function readJsonResponseSafe(response) {
+      const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+
+      try {
+        if (contentType.includes('application/json') || contentType.includes('text/json')) {
+          return await response.json();
+        }
+
+        const rawText = await response.text();
+        const trimmedText = String(rawText || '').trim();
+        if (!trimmedText) {
+          return null;
+        }
+        if (trimmedText.startsWith('{') || trimmedText.startsWith('[')) {
+          return JSON.parse(trimmedText);
+        }
+      } catch (error) {
+        return null;
+      }
+
+      return null;
+    }
+
     async function ensureReachableApiBase() {
       const candidates = [activeApiBase, ...getApiBaseCandidates().filter(candidate => candidate !== activeApiBase)];
       let lastError = null;
@@ -4392,7 +4502,9 @@
           if (!response.ok) {
             continue;
           }
+          const healthStatus = await readJsonResponseSafe(response);
           activeApiBase = candidate;
+          setRuntimeEnvironment(healthStatus?.environment);
           if (maybeRedirectToHostedApp(candidate)) {
             return candidate;
           }
@@ -4881,6 +4993,7 @@
     const authSwitchBootstrapButton = document.getElementById('auth-switch-bootstrap');
     const authLoginUsernameInput = document.getElementById('auth-login-username');
     const authLoginPasswordInput = document.getElementById('auth-login-password');
+    const authLoginShowPasswordInput = document.getElementById('auth-login-show-password');
     const authBootstrapNameInput = document.getElementById('auth-bootstrap-name');
     const authBootstrapUsernameInput = document.getElementById('auth-bootstrap-username');
     const authBootstrapPasswordInput = document.getElementById('auth-bootstrap-password');
@@ -4889,6 +5002,7 @@
     const sessionUserMeta = document.getElementById('session-user-meta');
     const logoutButton = document.getElementById('logout-button');
     const themeToggleButton = document.getElementById('theme-toggle');
+    const environmentIndicator = document.getElementById('environment-indicator');
     const securityUserForm = document.getElementById('security-user-form');
     const securityUserNameInput = document.getElementById('security-user-name');
     const securityUserUsernameInput = document.getElementById('security-user-username');
@@ -5013,6 +5127,30 @@
       if (!canAccessModule(state.activeTab)) {
         state.activeTab = fallbackTab;
       }
+    }
+
+    function renderEnvironmentIndicator() {
+      if (!environmentIndicator) {
+        return;
+      }
+
+      const environment = state.runtimeEnvironment || { mode: 'unknown', label: 'Detectando entorno...' };
+      environmentIndicator.textContent = environment.label || 'Detectando entorno...';
+      environmentIndicator.classList.toggle('is-test', environment.mode === 'test');
+      environmentIndicator.classList.toggle('is-production', environment.mode === 'production');
+      environmentIndicator.classList.toggle('is-loading', !['test', 'production'].includes(environment.mode));
+    }
+
+    function setRuntimeEnvironment(environment) {
+      const normalizedMode = String(environment?.mode || '').trim().toLowerCase();
+      if (normalizedMode === 'production') {
+        state.runtimeEnvironment = { mode: 'production', label: 'PRODUCCION' };
+      } else if (normalizedMode === 'test') {
+        state.runtimeEnvironment = { mode: 'test', label: 'PRUEBA' };
+      } else {
+        state.runtimeEnvironment = { mode: 'unknown', label: 'Detectando entorno...' };
+      }
+      renderEnvironmentIndicator();
     }
 
     function getSavedTheme() {
@@ -5286,7 +5424,7 @@
 
     async function startAuthenticatedApp() {
       if (!state.auth.token || !state.auth.user) {
-        clearAuthenticatedState({ message: 'Debes iniciar sesión para continuar.', error: true });
+        clearAuthenticatedState();
         return;
       }
       setAuthenticatedShell(true);
@@ -5353,6 +5491,7 @@
       sauceControls: [],
       activeTab: getSavedActiveTab(),
       productSearch: '',
+      runtimeEnvironment: { mode: 'unknown', label: 'Detectando entorno...' },
       auth: {
         token: getSavedAuthToken(),
         user: getSavedAuthUser(),
@@ -5362,6 +5501,8 @@
       }
     };
 
+    renderEnvironmentIndicator();
+
     tabs.forEach(tab => {
       tab.addEventListener('click', () => setActiveTab(tab.dataset.tab));
     });
@@ -5370,10 +5511,17 @@
       setAuthMode('bootstrap', { configured: state.auth.configured });
     });
 
+    if (authLoginShowPasswordInput && authLoginPasswordInput) {
+      authLoginShowPasswordInput.addEventListener('change', () => {
+        authLoginPasswordInput.type = authLoginShowPasswordInput.checked ? 'text' : 'password';
+      });
+    }
+
     authLoginForm.addEventListener('submit', async event => {
       event.preventDefault();
       try {
         setAuthStatus('Validando acceso...');
+        await ensureReachableApiBase();
         const response = await fetch(buildApiUrl('/auth/login'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -5382,9 +5530,12 @@
             password: authLoginPasswordInput.value
           })
         });
-        const result = await response.json();
+        const result = await readJsonResponseSafe(response);
         if (!response.ok) {
-          throw new Error(result.error || 'No se pudo iniciar sesión.');
+          throw new Error(result?.error || result?.message || `No se pudo iniciar sesión. Verifica que la API esté disponible en ${activeApiBase || 'http://localhost:3000'}.`);
+        }
+        if (!result) {
+          throw new Error(`La API respondió sin datos al iniciar sesión. Verifica que la API esté disponible en ${activeApiBase || 'http://localhost:3000'}.`);
         }
         persistAuthToken(result.token || '');
         persistAuthUser(result.user || null);
@@ -5404,6 +5555,7 @@
 
       try {
         setAuthStatus('Creando administrador...');
+        await ensureReachableApiBase();
         const response = await fetch(buildApiUrl('/auth/bootstrap'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -5413,9 +5565,12 @@
             password: authBootstrapPasswordInput.value
           })
         });
-        const result = await response.json();
+        const result = await readJsonResponseSafe(response);
         if (!response.ok) {
-          throw new Error(result.error || 'No se pudo crear el administrador.');
+          throw new Error(result?.error || result?.message || `No se pudo crear el administrador. Verifica que la API esté disponible en ${activeApiBase || 'http://localhost:3000'}.`);
+        }
+        if (!result) {
+          throw new Error(`La API respondió sin datos al crear el administrador. Verifica que la API esté disponible en ${activeApiBase || 'http://localhost:3000'}.`);
         }
         state.auth.configured = true;
         persistAuthToken(result.token || '');
@@ -11482,7 +11637,7 @@
         const response = await fetch(apiUrl(), { mode: 'cors', cache: 'no-cache' });
         if (!response.ok) {
           if (response.status === 401) {
-            handleUnauthorizedSession('Debes iniciar sesión para continuar.');
+            clearAuthenticatedState();
             return;
           }
           const message = await response.text();

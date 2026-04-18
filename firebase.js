@@ -1,11 +1,23 @@
 const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
+const { getFirestore } = require('firebase-admin/firestore');
 
-const envPath = path.join(__dirname, '.env');
-if (fs.existsSync(envPath)) {
-  require('dotenv').config({ path: envPath });
+function loadLocalEnvironment() {
+  if (process.env.VERCEL === '1') {
+    return;
+  }
+
+  const envFiles = ['.env', '.env.local'];
+  envFiles.forEach(fileName => {
+    const envPath = path.join(__dirname, fileName);
+    if (fs.existsSync(envPath)) {
+      require('dotenv').config({ path: envPath, override: fileName === '.env.local' });
+    }
+  });
 }
+
+loadLocalEnvironment();
 
 function normalizePrivateKey(value) {
   return typeof value === 'string' ? value.replace(/\\n/g, '\n') : undefined;
@@ -73,10 +85,22 @@ function buildCredential() {
   return credential;
 }
 
+function getConfiguredFirestoreDatabaseId() {
+  const configuredDatabaseId = String(process.env.FIRESTORE_DATABASE_ID || process.env.FIREBASE_FIRESTORE_DATABASE_ID || '').trim();
+  if (!configuredDatabaseId || configuredDatabaseId === '(default)') {
+    return '';
+  }
+  return configuredDatabaseId;
+}
+
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: buildCredential()
   });
 }
 
-module.exports = admin.firestore();
+const firestoreDatabaseId = getConfiguredFirestoreDatabaseId();
+
+module.exports = firestoreDatabaseId
+  ? getFirestore(admin.app(), firestoreDatabaseId)
+  : getFirestore(admin.app());

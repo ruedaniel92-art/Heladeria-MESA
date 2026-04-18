@@ -1154,8 +1154,20 @@ function repairConsumableControls(kind) {
   };
 }
 
+function getRuntimeEnvironmentInfo() {
+  const normalizedEnv = String(process.env.APP_ENV || '').trim().toLowerCase();
+  const isProduction = normalizedEnv
+    ? ['prod', 'production', 'produccion'].includes(normalizedEnv)
+    : process.env.VERCEL === '1';
+
+  return {
+    mode: isProduction ? 'production' : 'test',
+    label: isProduction ? 'PRODUCCION' : 'PRUEBA'
+  };
+}
+
 app.get("/health", (req, res) => {
-  res.json({ ok: true, service: "heladeria-mesa-api" });
+  res.json({ ok: true, service: "heladeria-mesa-api", environment: getRuntimeEnvironmentInfo() });
 });
 
 app.get(["/", "/index.html"], (req, res) => {
