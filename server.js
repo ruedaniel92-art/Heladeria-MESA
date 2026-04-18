@@ -18,10 +18,39 @@ const COLLECTIONS = {
   inventoryMovements: "inventoryMovements"
 };
 
+function buildAuthSecretSeed() {
+  const seedParts = [];
+  const serviceAccountJson = String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "").trim();
+
+  if (serviceAccountJson) {
+    try {
+      const parsedServiceAccount = JSON.parse(serviceAccountJson);
+      seedParts.push(parsedServiceAccount.project_id, parsedServiceAccount.client_email);
+    } catch (error) {
+      // Ignore malformed JSON here and fall back to the explicit env vars below.
+    }
+  }
+
+  seedParts.push(
+    process.env.FIREBASE_PROJECT_ID,
+    process.env.FIREBASE_CLIENT_EMAIL,
+    process.env.GCLOUD_PROJECT,
+    process.env.GOOGLE_CLOUD_PROJECT
+  );
+
+  const normalizedSeed = [...new Set(seedParts
+    .map(value => String(value || "").trim().toLowerCase())
+    .filter(Boolean))]
+    .sort()
+    .join("|");
+
+  return normalizedSeed || "heladeria-mesa-auth-secret";
+}
+
 const AUTH_TOKEN_DURATION_MS = 10 * 60 * 1000;
 const AUTH_PASSWORD_ITERATIONS = 210000;
 const AUTH_SECRET = process.env.APP_AUTH_SECRET
-  || crypto.createHash("sha256").update(String(process.env.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_CLIENT_EMAIL || "heladeria-mesa-auth-secret")).digest("hex");
+  || crypto.createHash("sha256").update(buildAuthSecretSeed()).digest("hex");
 const MODULE_PERMISSION_KEYS = ["dashboard", "ingreso", "compras", "ventas", "sabores", "inventario", "seguridad"];
 const DEFAULT_COLLECTION_CACHE_MS = 2 * 60 * 1000;
 const COLLECTION_CACHE_MS = {
