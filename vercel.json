@@ -10,6 +10,58 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/health",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/auth/:path*",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/productos/:path*",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/compras/:path*",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/ventas/:path*",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/sabores/:path*",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/toppings/:path*",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/salsas/:path*",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/baldes-control/:path*",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/toppings-control/:path*",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/salsas-control/:path*",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/inventario/:path*",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/crear",
+      "destination": "/api/index.js"
+    },
+    {
       "source": "/:path*",
       "destination": "/index.html"
     }
