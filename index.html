@@ -5392,7 +5392,11 @@
     }
 
     function handleUnauthorizedSession(message = 'La sesión expiró o ya no es válida. Inicia sesión nuevamente.') {
-      clearAuthenticatedState({ message, error: true });
+      const shouldShowMessage = !document.body.classList.contains('auth-locked');
+      clearAuthenticatedState({
+        message: shouldShowMessage ? message : '',
+        error: shouldShowMessage
+      });
     }
 
     async function fetchAuthStatus() {
