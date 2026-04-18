@@ -4324,9 +4324,27 @@
       }
     }
 
+    function resolveUrl(value) {
+      try {
+        return new URL(String(value || ''), window.location.origin);
+      } catch (error) {
+        return null;
+      }
+    }
+
     function isApiRequestTarget(input) {
-      const url = typeof input === 'string' ? input : String(input?.url || '');
-      return /^https?:\/\//i.test(url) && /\/((api\/)?|)\w/.test(url) && (url.includes('localhost:3000') || url.includes('127.0.0.1:3000'));
+      const rawUrl = typeof input === 'string' ? input : String(input?.url || '');
+      const resolvedUrl = resolveUrl(rawUrl);
+      if (!resolvedUrl || !/^https?:$/i.test(resolvedUrl.protocol)) {
+        return false;
+      }
+
+      const currentOrigin = resolveUrl(window.location.origin);
+      const currentApiBase = resolveUrl(activeApiBase);
+      const pathname = String(resolvedUrl.pathname || '');
+      const matchesCurrentOrigin = currentOrigin && resolvedUrl.origin === currentOrigin.origin;
+      const matchesApiOrigin = currentApiBase && resolvedUrl.origin === currentApiBase.origin;
+      return (matchesCurrentOrigin || matchesApiOrigin) && (pathname === '/health' || pathname.startsWith('/api/') || pathname.startsWith('/auth/') || pathname === '/api' || pathname === '/auth');
     }
 
     window.fetch = async (input, init = {}) => {
@@ -5267,6 +5285,10 @@
     }
 
     async function startAuthenticatedApp() {
+      if (!state.auth.token || !state.auth.user) {
+        clearAuthenticatedState({ message: 'Debes iniciar sesión para continuar.', error: true });
+        return;
+      }
       setAuthenticatedShell(true);
       setAuthStatus('');
       if (state.auth.user) {
@@ -11452,10 +11474,17 @@
 
     async function fetchProductos() {
       try {
+        if (!state.auth.token || !state.auth.user) {
+          return;
+        }
         loadingText.textContent = 'Cargando productos...';
         await ensureReachableApiBase();
         const response = await fetch(apiUrl(), { mode: 'cors', cache: 'no-cache' });
         if (!response.ok) {
+          if (response.status === 401) {
+            handleUnauthorizedSession('Debes iniciar sesión para continuar.');
+            return;
+          }
           const message = await response.text();
           throw new Error(`Error ${response.status}: ${message}`);
         }
@@ -11467,7 +11496,7 @@
         setProductStatus('Productos sincronizados con el backend.');
       } catch (error) {
         console.error(error);
-        setProductStatus(`No se pudo obtener los productos. ${error.message}. Usa http://localhost:3000 para abrir la app completa.`, { error: true });
+        setProductStatus(`No se pudo obtener los productos. ${error.message}.`, { error: true });
       } finally {
         loadingText.textContent = '';
       }
