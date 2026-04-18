@@ -4434,6 +4434,29 @@
       return !/\.[a-z0-9]+$/i.test(pathname);
     }
 
+    function getAuthTokenExpiration(token) {
+      try {
+        const [encodedPayload] = String(token || '').split('.');
+        if (!encodedPayload) {
+          return 0;
+        }
+        const payload = JSON.parse(atob(encodedPayload.replace(/-/g, '+').replace(/_/g, '/')));
+        return Number(payload?.exp || 0);
+      } catch (error) {
+        return 0;
+      }
+    }
+
+    function shouldPersistRefreshedAuthToken(currentToken, refreshedToken) {
+      if (!refreshedToken) {
+        return false;
+      }
+      if (!currentToken) {
+        return true;
+      }
+      return getAuthTokenExpiration(refreshedToken) >= getAuthTokenExpiration(currentToken);
+    }
+
     window.fetch = async (input, init = {}) => {
       const nextInit = { ...init };
       const headers = new Headers(init.headers || {});
@@ -4443,7 +4466,7 @@
       nextInit.headers = headers;
       const response = await nativeFetch(input, nextInit);
       const refreshedToken = isApiRequestTarget(input) ? String(response.headers.get('X-Auth-Token') || '').trim() : '';
-      if (refreshedToken) {
+      if (shouldPersistRefreshedAuthToken(state?.auth?.token || '', refreshedToken)) {
         persistAuthToken(refreshedToken);
       }
       if (response.status === 401 && isApiRequestTarget(input) && !String(typeof input === 'string' ? input : input?.url || '').includes('/auth/')) {
