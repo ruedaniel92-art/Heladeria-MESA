@@ -1,31 +1,35 @@
-const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
 const { getFirestore } = require('firebase-admin/firestore');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+const dotenv = require('dotenv');
+
+function loadLocalEnvironment() {
+  const projectRoot = path.join(__dirname, '..');
+  const envFiles = ['.env', '.env.local'];
+  envFiles.forEach(fileName => {
+    dotenv.config({ path: path.join(projectRoot, fileName), override: fileName === '.env.local' });
+  });
+}
+
+loadLocalEnvironment();
 
 function normalizePrivateKey(value) {
   return typeof value === 'string' ? value.replace(/\\n/g, '\n') : undefined;
 }
 
 function buildCredential() {
-  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-  if (serviceAccountPath) {
-    const absolutePath = path.isAbsolute(serviceAccountPath)
-      ? serviceAccountPath
-      : path.join(__dirname, '..', serviceAccountPath);
-    const parsedServiceAccount = JSON.parse(fs.readFileSync(absolutePath, 'utf8'));
-    return admin.credential.cert({
-      projectId: parsedServiceAccount.project_id,
-      clientEmail: parsedServiceAccount.client_email,
-      privateKey: normalizePrivateKey(parsedServiceAccount.private_key)
-    });
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
+
+  if (!projectId || !clientEmail || !privateKey) {
+    throw new Error('Faltan credenciales de Firebase. Configura FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL y FIREBASE_PRIVATE_KEY.');
   }
 
   return admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY)
+    projectId,
+    clientEmail,
+    privateKey
   });
 }
 

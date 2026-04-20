@@ -5224,58 +5224,7 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
   <script>
-    function normalizeApiBase(base) {
-      return String(base || '').replace(/\/+$/, '');
-    }
-
-    function getInitialApiBase() {
-      const { protocol, hostname, port, origin } = window.location;
-      const normalizedOrigin = normalizeApiBase(origin);
-      const localCandidates = [
-        'http://127.0.0.1:3000',
-        'http://localhost:3000'
-      ];
-
-      if (protocol === 'file:') {
-        return localCandidates[0];
-      }
-
-      if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '3000') {
-        return normalizedOrigin;
-      }
-
-      return `${normalizedOrigin}/api`;
-    }
-
-    function getApiBaseCandidates() {
-      const { protocol, hostname, port, origin } = window.location;
-      const candidates = [];
-      const pushCandidate = value => {
-        const normalized = normalizeApiBase(value);
-        if (normalized && !candidates.includes(normalized)) {
-          candidates.push(normalized);
-        }
-      };
-
-      if (protocol !== 'file:') {
-        const normalizedOrigin = normalizeApiBase(origin);
-        if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '3000') {
-          pushCandidate(normalizedOrigin);
-          pushCandidate(`${normalizedOrigin}/api`);
-        } else {
-          pushCandidate(`${normalizedOrigin}/api`);
-          pushCandidate(normalizedOrigin);
-        }
-      }
-
-      pushCandidate('http://127.0.0.1:3000');
-      pushCandidate('http://127.0.0.1:3000/api');
-      pushCandidate('http://localhost:3000');
-      pushCandidate('http://localhost:3000/api');
-      return candidates;
-    }
-
-    let activeApiBase = getInitialApiBase();
+    const API_BASE = '/api';
 
     const nativeFetch = window.fetch.bind(window);
     const AUTH_TOKEN_STORAGE_KEY = 'heladeria-mesa-auth-token';
@@ -5284,9 +5233,12 @@
     const AUTH_INACTIVITY_LIMIT_MS = 10 * 60 * 1000;
     const AUTH_ACTIVITY_WRITE_THROTTLE_MS = 15000;
 
-    function buildApiUrl(path, base = activeApiBase) {
-      const normalizedBase = normalizeApiBase(base);
-      return `${normalizedBase}${path.startsWith('/') ? path : `/${path}`}`;
+    function buildApiUrl(path) {
+      const normalizedPath = String(path || '').trim();
+      if (!normalizedPath || normalizedPath === '/') {
+        return API_BASE;
+      }
+      return `${API_BASE}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`;
     }
 
     function getSavedAuthToken() {
@@ -5330,23 +5282,12 @@
       }
 
       const currentOrigin = resolveUrl(window.location.origin);
-      const currentApiBase = resolveUrl(activeApiBase);
       const pathname = String(resolvedUrl.pathname || '');
-      const matchesCurrentOrigin = currentOrigin && resolvedUrl.origin === currentOrigin.origin;
-      const matchesApiOrigin = currentApiBase && resolvedUrl.origin === currentApiBase.origin;
-      if (!(matchesCurrentOrigin || matchesApiOrigin)) {
+      if (!currentOrigin || resolvedUrl.origin !== currentOrigin.origin) {
         return false;
       }
 
-      if (pathname === '/health' || pathname === '/api' || pathname === '/auth' || pathname.startsWith('/api/') || pathname.startsWith('/auth/')) {
-        return true;
-      }
-
-      if (pathname === '/' || pathname === '/index.html') {
-        return false;
-      }
-
-      return !/\.[a-z0-9]+$/i.test(pathname);
+      return pathname === API_BASE || pathname.startsWith(`${API_BASE}/`);
     }
 
     function getAuthTokenExpiration(token) {
@@ -5390,23 +5331,6 @@
       return response;
     };
 
-    function maybeRedirectToHostedApp(apiBase) {
-      const normalizedBase = normalizeApiBase(apiBase).replace(/\/api$/i, '');
-      if (!normalizedBase) {
-        return false;
-      }
-
-      const currentOrigin = normalizeApiBase(window.location.origin);
-      const isHostedAppBase = /^http:\/\/(127\.0\.0\.1|localhost):3000$/i.test(normalizedBase);
-      if (!isHostedAppBase || currentOrigin === normalizedBase) {
-        return false;
-      }
-
-      const nextUrl = `${normalizedBase}${window.location.pathname || '/'}${window.location.search || ''}${window.location.hash || ''}`;
-      window.location.replace(nextUrl);
-      return true;
-    }
-
     async function readJsonResponseSafe(response) {
       const contentType = String(response.headers.get('content-type') || '').toLowerCase();
 
@@ -5430,41 +5354,26 @@
       return null;
     }
 
-    async function ensureReachableApiBase() {
-      const candidates = [activeApiBase, ...getApiBaseCandidates().filter(candidate => candidate !== activeApiBase)];
-      let lastError = null;
-
-      for (const candidate of candidates) {
-        try {
-          const response = await fetch(buildApiUrl('/health', candidate), { cache: 'no-cache' });
-          if (!response.ok) {
-            continue;
-          }
-          const healthStatus = await readJsonResponseSafe(response);
-          const isValidApiHealth = Boolean(
-            healthStatus
-            && healthStatus.ok === true
-            && String(healthStatus.service || '').trim() === 'heladeria-mesa-api'
-          );
-          if (!isValidApiHealth) {
-            continue;
-          }
-          activeApiBase = candidate;
-          setRuntimeEnvironment(healthStatus?.environment);
-          if (maybeRedirectToHostedApp(candidate)) {
-            return candidate;
-          }
-          return candidate;
-        } catch (error) {
-          lastError = error;
+    async function fetchRuntimeEnvironment() {
+      try {
+        const response = await fetch(buildApiUrl('/health'), { cache: 'no-cache' });
+        if (!response.ok) {
+          return null;
         }
+        const healthStatus = await readJsonResponseSafe(response);
+        const isValidApiHealth = Boolean(
+          healthStatus
+          && healthStatus.ok === true
+          && String(healthStatus.service || '').trim() === 'heladeria-mesa-api'
+        );
+        if (!isValidApiHealth) {
+          return null;
+        }
+        setRuntimeEnvironment(healthStatus?.environment);
+        return healthStatus;
+      } catch (error) {
+        return null;
       }
-
-      if (lastError instanceof TypeError) {
-        throw new Error('No se pudo conectar con la API local. Si abriste la app con Five Server, inicia tambien el backend en http://127.0.0.1:3000.');
-      }
-
-      throw lastError || new Error('No se pudo conectar con la API.');
     }
 
     function getTodayInputValue() {
@@ -6491,7 +6400,7 @@
     }
 
     async function fetchAuthStatus() {
-      await ensureReachableApiBase();
+      await fetchRuntimeEnvironment();
       const response = await fetch(buildApiUrl('/auth/status'), { cache: 'no-cache' });
       if (!response.ok) {
         throw new Error(await buildApiError(response, 'No se pudo validar el estado de autenticación.'));
@@ -6643,7 +6552,6 @@
       event.preventDefault();
       try {
         setAuthStatus('Validando acceso...');
-        await ensureReachableApiBase();
         const response = await fetch(buildApiUrl('/auth/login'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -6654,10 +6562,10 @@
         });
         const result = await readJsonResponseSafe(response);
         if (!response.ok) {
-          throw new Error(result?.error || result?.message || `No se pudo iniciar sesión. Verifica que la API esté disponible en ${activeApiBase || 'http://localhost:3000'}.`);
+          throw new Error(result?.error || result?.message || 'No se pudo iniciar sesión. Verifica que la API esté disponible.');
         }
         if (!result) {
-          throw new Error(`La API respondió sin datos al iniciar sesión. Verifica que la API esté disponible en ${activeApiBase || 'http://localhost:3000'}.`);
+          throw new Error('La API respondió sin datos al iniciar sesión. Verifica que la API esté disponible.');
         }
         persistAuthToken(result.token || '');
         persistAuthUser(result.user || null);
@@ -6677,7 +6585,6 @@
 
       try {
         setAuthStatus('Creando administrador...');
-        await ensureReachableApiBase();
         const response = await fetch(buildApiUrl('/auth/bootstrap'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -6689,10 +6596,10 @@
         });
         const result = await readJsonResponseSafe(response);
         if (!response.ok) {
-          throw new Error(result?.error || result?.message || `No se pudo crear el administrador. Verifica que la API esté disponible en ${activeApiBase || 'http://localhost:3000'}.`);
+          throw new Error(result?.error || result?.message || 'No se pudo crear el administrador. Verifica que la API esté disponible.');
         }
         if (!result) {
-          throw new Error(`La API respondió sin datos al crear el administrador. Verifica que la API esté disponible en ${activeApiBase || 'http://localhost:3000'}.`);
+          throw new Error('La API respondió sin datos al crear el administrador. Verifica que la API esté disponible.');
         }
         state.auth.configured = true;
         persistAuthToken(result.token || '');
@@ -12527,7 +12434,6 @@
 
     async function fetchExternalDebts() {
       try {
-        await ensureReachableApiBase();
         const response = await fetch(buildApiUrl('/deudas-externas'), { cache: 'no-cache' });
         if (!response.ok) {
           throw new Error('No se pudieron cargar las deudas externas.');
@@ -14986,7 +14892,6 @@
           return;
         }
         loadingText.textContent = 'Cargando productos...';
-        await ensureReachableApiBase();
         const response = await fetch(apiUrl(), { mode: 'cors', cache: 'no-cache' });
         if (!response.ok) {
           if (response.status === 401) {
@@ -15039,7 +14944,7 @@
 
     function buildConnectionErrorMessage(actionLabel, error) {
       if (error instanceof TypeError && /fetch/i.test(String(error.message || ''))) {
-        return `No se pudo ${actionLabel}. Verifica que la API esté disponible en ${activeApiBase || 'http://localhost:3000'}.`;
+        return `No se pudo ${actionLabel}. Verifica que la API esté disponible.`;
       }
       return `No se pudo ${actionLabel}. ${error.message}`;
     }
@@ -16070,7 +15975,6 @@
         try {
           const isEditingExternalDebt = Boolean(editingExternalDebtId);
           setExternalDebtStatus(isEditingExternalDebt ? 'Actualizando deuda externa...' : 'Guardando deuda externa...');
-          await ensureReachableApiBase();
           const response = await fetch(buildApiUrl(isEditingExternalDebt ? `/deudas-externas/${encodeURIComponent(editingExternalDebtId)}` : '/deudas-externas'), {
             method: isEditingExternalDebt ? 'PATCH' : 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -16122,7 +16026,6 @@
 
         try {
           setExternalDebtPaymentStatus('Registrando abono...');
-          await ensureReachableApiBase();
           const response = await fetch(buildApiUrl(`/deudas-externas/${encodeURIComponent(payingExternalDebtId)}/abonos`), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
