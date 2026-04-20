@@ -8,6 +8,10 @@ const COLLECTIONS = {
   productos: "productos",
   compras: "compras",
   ventas: "ventas",
+  pagos: "pagos",
+  paymentCategories: "paymentCategories",
+  fundTransfers: "fundTransfers",
+  fundSettings: "fundSettings",
   sabores: "sabores",
   toppings: "toppings",
   salsas: "salsas",
@@ -15,7 +19,8 @@ const COLLECTIONS = {
   baldesControl: "baldesControl",
   toppingControls: "toppingControls",
   sauceControls: "sauceControls",
-  inventoryMovements: "inventoryMovements"
+  inventoryMovements: "inventoryMovements",
+  externalDebts: "externalDebts"
 };
 
 function buildAuthSecretSeed() {
@@ -51,10 +56,11 @@ const AUTH_TOKEN_DURATION_MS = 10 * 60 * 1000;
 const AUTH_PASSWORD_ITERATIONS = 210000;
 const AUTH_SECRET = process.env.APP_AUTH_SECRET
   || crypto.createHash("sha256").update(buildAuthSecretSeed()).digest("hex");
-const MODULE_PERMISSION_KEYS = ["dashboard", "ingreso", "compras", "ventas", "sabores", "inventario", "seguridad"];
+const MODULE_PERMISSION_KEYS = ["dashboard", "ingreso", "compras", "ventas", "pagos", "efectivo", "sabores", "inventario", "seguridad"];
 const DEFAULT_COLLECTION_CACHE_MS = 2 * 60 * 1000;
 const COLLECTION_CACHE_MS = {
   [COLLECTIONS.users]: 10 * 60 * 1000,
+  [COLLECTIONS.paymentCategories]: 5 * 60 * 1000,
   [COLLECTIONS.sabores]: 5 * 60 * 1000,
   [COLLECTIONS.toppings]: 5 * 60 * 1000,
   [COLLECTIONS.salsas]: 5 * 60 * 1000
@@ -94,6 +100,10 @@ app.use((req, res, next) => {
 let productos = [];
 let compras = [];
 let ventas = [];
+let pagos = [];
+let paymentCategories = [];
+let fundTransfers = [];
+let fundSettings = [];
 let sabores = [];
 let toppings = [];
 let salsas = [];
@@ -102,6 +112,7 @@ let baldesControl = [];
 let toppingControls = [];
 let sauceControls = [];
 let inventoryMovements = [];
+let externalDebts = [];
 const collectionCacheState = Object.values(COLLECTIONS).reduce((accumulator, collectionName) => {
   accumulator[collectionName] = { loadedAt: 0, hasLoaded: false };
   return accumulator;
@@ -143,6 +154,18 @@ function assignCollectionData(collectionName, records) {
     case COLLECTIONS.ventas:
       ventas = records;
       break;
+    case COLLECTIONS.pagos:
+      pagos = records;
+      break;
+    case COLLECTIONS.paymentCategories:
+      paymentCategories = records;
+      break;
+    case COLLECTIONS.fundTransfers:
+      fundTransfers = records;
+      break;
+    case COLLECTIONS.fundSettings:
+      fundSettings = records;
+      break;
     case COLLECTIONS.sabores:
       sabores = records;
       break;
@@ -166,6 +189,9 @@ function assignCollectionData(collectionName, records) {
       break;
     case COLLECTIONS.inventoryMovements:
       inventoryMovements = records;
+      break;
+    case COLLECTIONS.externalDebts:
+      externalDebts = records;
       break;
     default:
       break;
@@ -753,6 +779,257 @@ function sortRecordsByDate(records, dateField = 'fecha') {
   });
 }
 
+function normalizeFundAccount(rawAccount) {
+  const normalizedAccount = String(rawAccount || '').trim().toLowerCase();
+  if (normalizedAccount === 'efectivo') {
+    return 'efectivo';
+  }
+  if (["banco", "bancos"].includes(normalizedAccount)) {
+    return 'banco';
+  }
+  return '';
+}
+
+function normalizeNonNegativeAmount(value) {
+  const amount = Number(value);
+  if (Number.isNaN(amount) || amount < 0) {
+    return null;
+  }
+  return amount;
+}
+
+function extractReceiptSequence(value, prefix = 'REC-') {
+  const normalizedValue = String(value || '').trim().toUpperCase();
+  if (!normalizedValue.startsWith(prefix)) {
+    return 0;
+  }
+  const numericPart = normalizedValue.slice(prefix.length).replace(/[^0-9]/g, '');
+  const sequence = Number(numericPart);
+  return Number.isInteger(sequence) && sequence > 0 ? sequence : 0;
+}
+
+function buildNextPaymentReceiptNumber(payments, prefix = 'REC-') {
+  const highestSequence = (Array.isArray(payments) ? payments : []).reduce((maxValue, payment) => {
+    const paymentSequence = Math.max(
+      extractReceiptSequence(payment?.receiptNumber, prefix),
+      extractReceiptSequence(payment?.referencia, prefix)
+    );
+    return Math.max(maxValue, paymentSequence);
+  }, 0);
+
+  return `${prefix}${String(highestSequence + 1).padStart(6, '0')}`;
+}
+
+function getHistoryReceiptSequence(historyEntries, prefix = 'REC-') {
+  return (Array.isArray(historyEntries) ? historyEntries : []).reduce((maxValue, entry) => {
+    const entrySequence = Math.max(
+      extractReceiptSequence(entry?.receiptNumber, prefix),
+      extractReceiptSequence(entry?.paymentReference, prefix)
+    );
+    return Math.max(maxValue, entrySequence);
+  }, 0);
+}
+
+function buildNextOutgoingReceiptNumber(prefix = 'REC-') {
+  const paymentMax = (Array.isArray(pagos) ? pagos : []).reduce((maxValue, payment) => {
+    const paymentSequence = Math.max(
+      extractReceiptSequence(payment?.receiptNumber, prefix),
+      extractReceiptSequence(payment?.referencia, prefix)
+    );
+    return Math.max(maxValue, paymentSequence);
+  }, 0);
+  const purchaseMax = (Array.isArray(compras) ? compras : []).reduce((maxValue, compra) => Math.max(maxValue, getHistoryReceiptSequence(compra?.paymentHistory, prefix)), 0);
+  const externalDebtMax = (Array.isArray(externalDebts) ? externalDebts : []).reduce((maxValue, debt) => Math.max(maxValue, getHistoryReceiptSequence(debt?.paymentHistory, prefix)), 0);
+  const highestSequence = Math.max(paymentMax, purchaseMax, externalDebtMax);
+  return `${prefix}${String(highestSequence + 1).padStart(6, '0')}`;
+}
+
+function getDefaultFundSettings() {
+  return {
+    id: 'main',
+    openingCashBalance: 0,
+    openingBankBalance: 0,
+    minimumCashReserve: 0,
+    createdAt: null,
+    updatedAt: null
+  };
+}
+
+function getCurrentFundSettings() {
+  const defaultSettings = getDefaultFundSettings();
+  const storedSettings = Array.isArray(fundSettings) && fundSettings.length ? fundSettings[0] : null;
+  return {
+    ...defaultSettings,
+    ...(storedSettings || {}),
+    openingCashBalance: Number(storedSettings?.openingCashBalance || 0),
+    openingBankBalance: Number(storedSettings?.openingBankBalance || 0),
+    minimumCashReserve: Number(storedSettings?.minimumCashReserve || 0)
+  };
+}
+
+function calculatePurchaseInvoiceTotal(compra) {
+  const items = Array.isArray(compra?.items) ? compra.items : [];
+  return items.reduce((sum, item) => sum + Number(item.costo || 0) * Number(item.cantidad || 0), 0);
+}
+
+function calculateSaleInvoiceTotal(venta) {
+  const items = Array.isArray(venta?.items) ? venta.items : [];
+  return items.reduce((sum, item) => {
+    const extrasTotal = Array.isArray(item.adicionales)
+      ? item.adicionales.reduce((addonSum, adicional) => addonSum + Number(adicional.cantidad || 0) * Number(adicional.precio || 0), 0)
+      : 0;
+    return sum + Number(item.precio || 0) * Number(item.cantidad || 0) + extrasTotal;
+  }, 0);
+}
+
+function normalizePaymentHistoryEntries(entries, totalAmount, fallbackEntry = null) {
+  const normalizedEntries = (Array.isArray(entries) ? entries : [])
+    .map(entry => {
+      const amount = normalizeNonNegativeAmount(entry?.amount);
+      const date = entry?.date ? new Date(entry.date) : null;
+      if (amount === null || amount <= 0 || !date || Number.isNaN(date.getTime())) {
+        return null;
+      }
+      return {
+        id: String(entry.id || crypto.randomUUID()),
+        amount,
+        date: date.toISOString(),
+        paymentMethod: String(entry.paymentMethod || '').trim().toLowerCase() || null,
+        paymentReference: String(entry.paymentReference || '').trim() || null,
+        receiptNumber: String(entry.receiptNumber || '').trim() || null,
+        note: String(entry.note || '').trim() || null,
+        account: normalizeFundAccount(entry.account) || null,
+        createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : new Date().toISOString()
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => new Date(left.date || 0) - new Date(right.date || 0));
+
+  if (!normalizedEntries.length && fallbackEntry) {
+    const fallbackAmount = normalizeNonNegativeAmount(fallbackEntry.amount);
+    const fallbackDate = fallbackEntry.date ? new Date(fallbackEntry.date) : null;
+    if (fallbackAmount !== null && fallbackAmount > 0 && fallbackDate && !Number.isNaN(fallbackDate.getTime())) {
+      normalizedEntries.push({
+        id: crypto.randomUUID(),
+        amount: Math.min(fallbackAmount, Math.max(Number(totalAmount || 0), 0)),
+        date: fallbackDate.toISOString(),
+        paymentMethod: String(fallbackEntry.paymentMethod || '').trim().toLowerCase() || null,
+        paymentReference: String(fallbackEntry.paymentReference || '').trim() || null,
+        receiptNumber: String(fallbackEntry.receiptNumber || '').trim() || null,
+        note: String(fallbackEntry.note || '').trim() || null,
+        account: normalizeFundAccount(fallbackEntry.account) || null,
+        createdAt: fallbackDate.toISOString()
+      });
+    }
+  }
+
+  return normalizedEntries;
+}
+
+function summarizePaymentHistory(record, totalAmount) {
+  const normalizedTotal = Math.max(Number(totalAmount || 0), 0);
+  const paymentHistory = normalizePaymentHistoryEntries(record?.paymentHistory, normalizedTotal, record?.paidAt ? {
+    amount: normalizedTotal,
+    date: record.paidAt,
+    paymentMethod: record.paymentMethod,
+    paymentReference: record.paymentReference,
+    account: record.account
+  } : null);
+  const totalPaid = paymentHistory.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  return {
+    paymentHistory,
+    totalPaid: Math.min(totalPaid, normalizedTotal),
+    balanceDue: Math.max(normalizedTotal - totalPaid, 0)
+  };
+}
+
+function getAccountFromPaymentMethod(method) {
+  const normalizedMethod = String(method || '').trim().toLowerCase();
+  if (normalizedMethod === 'efectivo') {
+    return 'efectivo';
+  }
+  if (['transferencia', 'tarjeta', 'tarjeta-credito'].includes(normalizedMethod)) {
+    return 'banco';
+  }
+  return null;
+}
+
+function ensurePurchaseFinancialState(compra) {
+  if (!compra) {
+    return null;
+  }
+  const totalAmount = calculatePurchaseInvoiceTotal(compra);
+  const paymentSummary = summarizePaymentHistory(compra, totalAmount);
+  const lastPayment = paymentSummary.paymentHistory.length ? paymentSummary.paymentHistory[paymentSummary.paymentHistory.length - 1] : null;
+  const originalPaymentType = String(compra.originalPaymentType || compra.paymentType || '').trim().toLowerCase() || 'contado';
+  const isCredit = originalPaymentType === 'credito';
+
+  compra.totalAmount = totalAmount;
+  compra.paymentHistory = paymentSummary.paymentHistory;
+  compra.totalPaid = paymentSummary.totalPaid;
+  compra.balanceDue = isCredit ? paymentSummary.balanceDue : 0;
+  compra.status = isCredit
+    ? (compra.balanceDue <= 0 ? 'pagada' : compra.totalPaid > 0 ? 'abonada' : 'pendiente')
+    : 'pagada';
+  compra.paidAt = compra.status === 'pagada' ? (lastPayment?.date || compra.paidAt || compra.fecha || null) : null;
+  compra.paymentMethod = lastPayment?.paymentMethod || (compra.paidAt ? compra.paymentMethod : compra.paymentMethod || null);
+  compra.paymentReference = lastPayment?.paymentReference || (compra.paidAt ? compra.paymentReference : null);
+  if (String(compra.paymentType || '').trim().toLowerCase() !== originalPaymentType) {
+    compra.paymentType = originalPaymentType;
+  }
+  return compra;
+}
+
+function ensureSaleFinancialState(venta) {
+  if (!venta) {
+    return null;
+  }
+  const totalAmount = calculateSaleInvoiceTotal(venta);
+  const paymentSummary = summarizePaymentHistory(venta, totalAmount);
+  const lastPayment = paymentSummary.paymentHistory.length ? paymentSummary.paymentHistory[paymentSummary.paymentHistory.length - 1] : null;
+  const originalPaymentType = String(venta.originalPaymentType || venta.paymentType || '').trim().toLowerCase() || 'contado';
+  const isCredit = originalPaymentType === 'credito';
+
+  venta.totalAmount = totalAmount;
+  venta.paymentHistory = paymentSummary.paymentHistory;
+  venta.totalPaid = paymentSummary.totalPaid;
+  venta.balanceDue = isCredit ? paymentSummary.balanceDue : 0;
+  venta.status = isCredit
+    ? (venta.balanceDue <= 0 ? 'pagada' : venta.totalPaid > 0 ? 'abonada' : 'pendiente')
+    : 'pagada';
+  venta.paidAt = venta.status === 'pagada' ? (lastPayment?.date || venta.paidAt || venta.fecha || null) : null;
+  venta.paymentMethod = lastPayment?.paymentMethod || (venta.paidAt ? venta.paymentMethod : venta.paymentMethod || null);
+  venta.paymentReference = lastPayment?.paymentReference || (venta.paidAt ? venta.paymentReference : null);
+  if (String(venta.paymentType || '').trim().toLowerCase() !== originalPaymentType) {
+    venta.paymentType = originalPaymentType;
+  }
+  return venta;
+}
+
+function ensureExternalDebtFinancialState(debt) {
+  if (!debt) {
+    return null;
+  }
+  const originalAmount = Math.max(Number(debt.originalAmount || debt.totalAmount || debt.amount || 0), 0);
+  const paymentHistory = normalizePaymentHistoryEntries(debt.paymentHistory, originalAmount);
+  const totalPaid = paymentHistory.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const balanceDue = Math.max(originalAmount - totalPaid, 0);
+  const type = String(debt.type || '').trim().toLowerCase() === 'por-cobrar' ? 'por-cobrar' : 'por-pagar';
+  const dueDate = debt.dueDate ? new Date(debt.dueDate) : null;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const isOverdue = balanceDue > 0 && dueDate && !Number.isNaN(dueDate.getTime()) && dueDate < now;
+
+  debt.type = type;
+  debt.originalAmount = originalAmount;
+  debt.paymentHistory = paymentHistory;
+  debt.totalPaid = Math.min(totalPaid, originalAmount);
+  debt.balanceDue = balanceDue;
+  debt.status = balanceDue <= 0 ? 'pagada' : totalPaid > 0 ? 'abonada' : isOverdue ? 'vencida' : 'pendiente';
+  debt.paidAt = balanceDue <= 0 && paymentHistory.length ? paymentHistory[paymentHistory.length - 1].date : null;
+  return debt;
+}
+
 function getConsumableConfig(kind) {
   if (kind === 'bucket') {
     return {
@@ -1053,17 +1330,17 @@ function buildInventoryMovement({ producto, tipo, direccion, cantidad, fecha, ob
   };
 }
 
-function findExistingConsumableCloseMovement(kind, control) {
+function findExistingConsumableCloseMovements(kind, control) {
   const config = getConsumableConfig(kind);
   if (!config || !control) {
-    return null;
+    return [];
   }
 
   const closeDate = control.fechaCierre ? new Date(control.fechaCierre) : null;
   const closeTime = closeDate && !Number.isNaN(closeDate.getTime()) ? closeDate.getTime() : null;
   const expectedObservation = `Merma por cierre de ${config.label} ${control[config.entityNameField] || ''}`.trim();
 
-  return inventoryMovements.find(movement => {
+  return inventoryMovements.filter(movement => {
     if (String(movement.tipo || '') !== 'cierre-control' || String(movement.direccion || '') !== 'salida') {
       return false;
     }
@@ -1084,54 +1361,35 @@ function findExistingConsumableCloseMovement(kind, control) {
     }
     const movementTime = movement.fecha ? new Date(movement.fecha).getTime() : null;
     return movementTime === closeTime;
-  }) || null;
+  });
 }
 
-function buildConsumableCloseInventoryMovement(kind, control, closeDate) {
+function removeConsumableCloseInventoryMovements(kind, control) {
   const config = getConsumableConfig(kind);
-  const wasteQuantity = Number(control?.mermaReal || 0);
-  if (!config || !control || wasteQuantity <= 0) {
-    return null;
+  if (!config || !control) {
+    return { removedMovements: [], affectedProduct: null, restoredQuantity: 0 };
+  }
+
+  const existingMovements = findExistingConsumableCloseMovements(kind, control);
+  if (!existingMovements.length) {
+    return { removedMovements: [], affectedProduct: null, restoredQuantity: 0 };
   }
 
   const producto = productos.find(item => String(item.id) === String(control[config.rawMaterialIdField] || ''));
-  if (!producto) {
-    return null;
+  const restoredQuantity = existingMovements.reduce((sum, movement) => sum + Math.max(Number(movement.cantidad || 0), 0), 0);
+
+  if (producto && restoredQuantity > 0) {
+    producto.stock = Number(producto.stock || 0) + restoredQuantity;
   }
 
-  const existingMovement = findExistingConsumableCloseMovement(kind, control);
-  if (existingMovement) {
-    return { producto, movement: existingMovement, exists: true };
-  }
+  const removedIds = new Set(existingMovements.map(movement => String(movement.id)));
+  inventoryMovements = inventoryMovements.filter(movement => !removedIds.has(String(movement.id)));
 
-  const previousStock = Number(producto.stock || 0);
-  const nextStock = previousStock - wasteQuantity;
-  if (nextStock < 0) {
-    throw new Error(`La merma del cierre no puede dejar el stock de ${producto.nombre} en negativo.`);
-  }
-
-  producto.stock = nextStock;
-  const movement = buildInventoryMovement({
-    producto,
-    tipo: 'cierre-control',
-    direccion: 'salida',
-    cantidad: wasteQuantity,
-    fecha: closeDate.toISOString(),
-    observacion: `Merma por cierre de ${config.label} ${control[config.entityNameField] || ''}`.trim(),
-    referencia: `Cierre ${config.label}`,
-    saldoAnterior: previousStock,
-    saldoNuevo: nextStock,
-    costoUnitario: 0,
-    costoTotal: 0,
-    extraFields: {
-      controlKind: kind,
-      controlId: String(control.id),
-      controlEntityId: String(control[config.entityIdField] || '')
-    }
-  });
-
-  inventoryMovements.push(movement);
-  return { producto, movement, exists: false };
+  return {
+    removedMovements: existingMovements,
+    affectedProduct: producto || null,
+    restoredQuantity
+  };
 }
 
 function repairConsumableControls(kind) {
@@ -1141,9 +1399,10 @@ function repairConsumableControls(kind) {
   }
 
   let repairedControls = 0;
-  let createdMovements = 0;
+  let removedMovements = 0;
   const affectedSaleIds = new Set();
   const affectedProductIds = new Set();
+  const removedMovementIds = new Set();
 
   sortRecordsByDate(config.controlList, 'fechaApertura').forEach(control => {
     ensureConsumableControlSnapshot(kind, control);
@@ -1165,19 +1424,18 @@ function repairConsumableControls(kind) {
     const affectedSales = applyFinalCostToSalesForControl(kind, control);
     affectedSales.forEach(venta => affectedSaleIds.add(String(venta.id)));
 
-    const closeDate = control.fechaCierre ? new Date(control.fechaCierre) : new Date();
-    const closeMovementResult = buildConsumableCloseInventoryMovement(kind, control, closeDate);
-    if (closeMovementResult) {
-      affectedProductIds.add(String(closeMovementResult.producto.id));
-      if (!closeMovementResult.exists) {
-        createdMovements += 1;
-      }
+    const cleanupResult = removeConsumableCloseInventoryMovements(kind, control);
+    if (cleanupResult.affectedProduct) {
+      affectedProductIds.add(String(cleanupResult.affectedProduct.id));
     }
+    removedMovements += cleanupResult.removedMovements.length;
+    cleanupResult.removedMovements.forEach(movement => removedMovementIds.add(String(movement.id)));
   });
 
   return {
     repairedControls,
-    createdMovements,
+    removedMovements,
+    removedMovementIds: Array.from(removedMovementIds),
     updatedSales: affectedSaleIds.size,
     updatedProducts: affectedProductIds.size
   };
@@ -1748,14 +2006,14 @@ app.post("/baldes-control/:id/cerrar", asyncHandler(async (req, res) => {
   bucket.costoEstado = 'final';
 
   const affectedSales = applyFinalCostToSalesForControl('bucket', bucket);
-  const closeMovementResult = buildConsumableCloseInventoryMovement('bucket', bucket, fechaCierre);
+  const cleanupResult = removeConsumableCloseInventoryMovements('bucket', bucket);
 
   await commitBatch([
     { type: 'set', collection: COLLECTIONS.baldesControl, id: bucket.id, data: bucket },
-    ...(closeMovementResult ? [
-      { type: 'set', collection: COLLECTIONS.productos, id: closeMovementResult.producto.id, data: closeMovementResult.producto },
-      { type: 'set', collection: COLLECTIONS.inventoryMovements, id: closeMovementResult.movement.id, data: closeMovementResult.movement }
+    ...(cleanupResult.affectedProduct ? [
+      { type: 'set', collection: COLLECTIONS.productos, id: cleanupResult.affectedProduct.id, data: cleanupResult.affectedProduct }
     ] : []),
+    ...cleanupResult.removedMovements.map(movement => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id: movement.id })),
     ...affectedSales.map(venta => ({ type: 'set', collection: COLLECTIONS.ventas, id: venta.id, data: venta }))
   ]);
   res.json({ message: "Balde cerrado correctamente y costo final aplicado a las ventas asociadas.", balde: bucket });
@@ -1869,14 +2127,14 @@ app.post("/toppings-control/:id/cerrar", asyncHandler(async (req, res) => {
   control.costoEstado = 'final';
 
   const affectedSales = applyFinalCostToSalesForControl('topping', control);
-  const closeMovementResult = buildConsumableCloseInventoryMovement('topping', control, fechaCierre);
+  const cleanupResult = removeConsumableCloseInventoryMovements('topping', control);
 
   await commitBatch([
     { type: 'set', collection: COLLECTIONS.toppingControls, id: control.id, data: control },
-    ...(closeMovementResult ? [
-      { type: 'set', collection: COLLECTIONS.productos, id: closeMovementResult.producto.id, data: closeMovementResult.producto },
-      { type: 'set', collection: COLLECTIONS.inventoryMovements, id: closeMovementResult.movement.id, data: closeMovementResult.movement }
+    ...(cleanupResult.affectedProduct ? [
+      { type: 'set', collection: COLLECTIONS.productos, id: cleanupResult.affectedProduct.id, data: cleanupResult.affectedProduct }
     ] : []),
+    ...cleanupResult.removedMovements.map(movement => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id: movement.id })),
     ...affectedSales.map(venta => ({ type: 'set', collection: COLLECTIONS.ventas, id: venta.id, data: venta }))
   ]);
   res.json({ message: "Control de topping cerrado correctamente y costo final aplicado a las ventas asociadas.", control });
@@ -1990,14 +2248,14 @@ app.post("/salsas-control/:id/cerrar", asyncHandler(async (req, res) => {
   control.costoEstado = 'final';
 
   const affectedSales = applyFinalCostToSalesForControl('sauce', control);
-  const closeMovementResult = buildConsumableCloseInventoryMovement('sauce', control, fechaCierre);
+  const cleanupResult = removeConsumableCloseInventoryMovements('sauce', control);
 
   await commitBatch([
     { type: 'set', collection: COLLECTIONS.sauceControls, id: control.id, data: control },
-    ...(closeMovementResult ? [
-      { type: 'set', collection: COLLECTIONS.productos, id: closeMovementResult.producto.id, data: closeMovementResult.producto },
-      { type: 'set', collection: COLLECTIONS.inventoryMovements, id: closeMovementResult.movement.id, data: closeMovementResult.movement }
+    ...(cleanupResult.affectedProduct ? [
+      { type: 'set', collection: COLLECTIONS.productos, id: cleanupResult.affectedProduct.id, data: cleanupResult.affectedProduct }
     ] : []),
+    ...cleanupResult.removedMovements.map(movement => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id: movement.id })),
     ...affectedSales.map(venta => ({ type: 'set', collection: COLLECTIONS.ventas, id: venta.id, data: venta }))
   ]);
   res.json({ message: "Control de salsa/aderezo cerrado correctamente y costo final aplicado a las ventas asociadas.", control });
@@ -2015,6 +2273,9 @@ app.post("/controles/reparar-historico", asyncHandler(async (req, res) => {
     ...toppingControls.map(control => ({ type: 'set', collection: COLLECTIONS.toppingControls, id: control.id, data: control })),
     ...sauceControls.map(control => ({ type: 'set', collection: COLLECTIONS.sauceControls, id: control.id, data: control })),
     ...productos.map(producto => ({ type: 'set', collection: COLLECTIONS.productos, id: producto.id, data: producto })),
+    ...bucketSummary.removedMovementIds.map(id => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id })),
+    ...toppingSummary.removedMovementIds.map(id => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id })),
+    ...sauceSummary.removedMovementIds.map(id => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id })),
     ...inventoryMovements.map(movement => ({ type: 'set', collection: COLLECTIONS.inventoryMovements, id: movement.id, data: movement })),
     ...ventas.map(venta => ({ type: 'set', collection: COLLECTIONS.ventas, id: venta.id, data: venta }))
   ]);
@@ -2025,7 +2286,7 @@ app.post("/controles/reparar-historico", asyncHandler(async (req, res) => {
     salsas: sauceSummary,
     totals: {
       controles: bucketSummary.repairedControls + toppingSummary.repairedControls + sauceSummary.repairedControls,
-      movimientosCreados: bucketSummary.createdMovements + toppingSummary.createdMovements + sauceSummary.createdMovements,
+      movimientosEliminados: bucketSummary.removedMovements + toppingSummary.removedMovements + sauceSummary.removedMovements,
       ventasActualizadas: bucketSummary.updatedSales + toppingSummary.updatedSales + sauceSummary.updatedSales,
       productosActualizados: bucketSummary.updatedProducts + toppingSummary.updatedProducts + sauceSummary.updatedProducts
     }
@@ -2183,6 +2444,20 @@ app.post("/compras", asyncHandler(async (req, res) => {
     }
   });
 
+  const totalAmount = validatedItems.reduce((sum, item) => sum + Number(item.costo || 0) * Number(item.cantidad || 0), 0);
+  const initialPaymentHistory = normalizedPaymentType === "contado"
+    ? [{
+      id: crypto.randomUUID(),
+      amount: totalAmount,
+      date: parsedDate.toISOString(),
+      paymentMethod: normalizedPaymentMethod,
+      paymentReference: normalizedPaymentReference || null,
+      note: 'Pago inicial de compra',
+      account: getAccountFromPaymentMethod(normalizedPaymentMethod),
+      createdAt: parsedDate.toISOString()
+    }]
+    : [];
+
   const compra = {
     id: createDocId(COLLECTIONS.compras),
     documento: String(documento).trim(),
@@ -2197,8 +2472,14 @@ app.post("/compras", asyncHandler(async (req, res) => {
     cashReceived: normalizedPaymentType === "contado" ? (normalizedCashReceived ?? normalizedCashOut) : null,
     cashChange: null,
     paidAt: normalizedPaymentType === "contado" ? parsedDate.toISOString() : null,
+    paymentHistory: initialPaymentHistory,
+    totalAmount,
+    totalPaid: normalizedPaymentType === "contado" ? totalAmount : 0,
+    balanceDue: normalizedPaymentType === "credito" ? totalAmount : 0,
+    status: normalizedPaymentType === "credito" ? 'pendiente' : 'pagada',
     items: validatedItems
   };
+  ensurePurchaseFinancialState(compra);
   compras.push(compra);
   await commitBatch([
     ...validatedItems.map(item => {
@@ -2625,8 +2906,25 @@ app.post("/ventas", asyncHandler(async (req, res) => {
     cashReceived: normalizedPaymentType === "contado" ? normalizedCashReceived : null,
     cashChange: normalizedPaymentType === "contado" ? (normalizedCashChange ?? (normalizedCashReceived - totalFactura)) : null,
     paidAt: normalizedPaymentType === "contado" ? parsedDate.toISOString() : null,
+    paymentHistory: normalizedPaymentType === 'contado'
+      ? [{
+        id: crypto.randomUUID(),
+        amount: totalFactura,
+        date: parsedDate.toISOString(),
+        paymentMethod: normalizedPaymentMethod,
+        paymentReference: normalizedPaymentReference || null,
+        note: 'Pago inicial de venta',
+        account: getAccountFromPaymentMethod(normalizedPaymentMethod),
+        createdAt: parsedDate.toISOString()
+      }]
+      : [],
+    totalAmount: totalFactura,
+    totalPaid: normalizedPaymentType === 'contado' ? totalFactura : 0,
+    balanceDue: normalizedPaymentType === 'credito' ? totalFactura : 0,
+    status: normalizedPaymentType === 'credito' ? 'pendiente' : 'pagada',
     items: validatedItems
   };
+  ensureSaleFinancialState(venta);
   ventas.push(venta);
   await commitBatch([
     ...productos.map(producto => ({ type: 'set', collection: COLLECTIONS.productos, id: producto.id, data: producto })),
@@ -2641,14 +2939,13 @@ app.post("/ventas", asyncHandler(async (req, res) => {
 // Historial de compras
 app.get("/compras", asyncHandler(async (req, res) => {
   await hydrateStore([COLLECTIONS.compras]);
-  res.json(compras);
+  res.json(compras.map(compra => ensurePurchaseFinancialState(compra)));
 }));
 
 app.post("/compras/:id/pagar", asyncHandler(async (req, res) => {
   await hydrateStore();
   const { id } = req.params;
   const compra = compras.find(item => String(item.id) === String(id));
-  const hadPaidAt = Boolean(compra?.paidAt);
 
   if (!compra) {
     return res.status(404).json({ error: "Compra no encontrada." });
@@ -2679,27 +2976,481 @@ app.post("/compras/:id/pagar", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "La referencia es obligatoria para tarjeta o transferencia." });
   }
 
-  const totalAmount = Array.isArray(compra.items)
-    ? compra.items.reduce((sum, item) => sum + Number(item.costo || 0) * Number(item.cantidad || 0), 0)
-    : 0;
+  const receiptNumber = paymentMethod === 'efectivo'
+    ? buildNextOutgoingReceiptNumber()
+    : null;
+  const resolvedPaymentReference = paymentMethod === 'efectivo'
+    ? receiptNumber
+    : (paymentReference || null);
+
+  ensurePurchaseFinancialState(compra);
+  const totalAmount = Number(compra.totalAmount || calculatePurchaseInvoiceTotal(compra));
+  const paymentAmount = isCreditPurchase
+    ? Number(req.body?.amount)
+    : totalAmount;
+
+  if (isCreditPurchase) {
+    if (Number.isNaN(paymentAmount) || paymentAmount <= 0) {
+      return res.status(400).json({ error: "El monto del abono debe ser mayor a cero." });
+    }
+    if (paymentAmount - Number(compra.balanceDue || 0) > 0.0001) {
+      return res.status(400).json({ error: "El abono no puede ser mayor que el saldo pendiente." });
+    }
+  }
 
   compra.originalPaymentType = originalPaymentType || (isCashPurchase ? 'contado' : 'credito');
   compra.paymentType = isCashPurchase ? 'contado' : 'credito';
-  compra.paymentMethod = paymentMethod;
-  compra.paymentReference = paymentReference || null;
   compra.cashOut = totalAmount;
   compra.cashReceived = totalAmount;
   compra.cashChange = 0;
-  compra.paidAt = paidAt.toISOString();
+  compra.paymentHistory = isCashPurchase
+    ? [{
+      id: crypto.randomUUID(),
+      amount: totalAmount,
+      date: paidAt.toISOString(),
+      paymentMethod,
+      paymentReference: resolvedPaymentReference,
+      receiptNumber,
+      note: 'Pago actualizado de compra de contado',
+      account: getAccountFromPaymentMethod(paymentMethod),
+      createdAt: new Date().toISOString()
+    }]
+    : [
+      ...(Array.isArray(compra.paymentHistory) ? compra.paymentHistory : []),
+      {
+        id: crypto.randomUUID(),
+        amount: paymentAmount,
+        date: paidAt.toISOString(),
+        paymentMethod,
+        paymentReference: resolvedPaymentReference,
+        receiptNumber,
+        note: 'Abono a compra a crédito',
+        account: getAccountFromPaymentMethod(paymentMethod),
+        createdAt: new Date().toISOString()
+      }
+    ];
+
+  ensurePurchaseFinancialState(compra);
 
   await saveRecord(COLLECTIONS.compras, compra);
-  res.json({ message: hadPaidAt ? "Pago actualizado correctamente." : "Pago aplicado correctamente.", compra });
+  res.json({
+    message: isCashPurchase
+      ? "Pago actualizado correctamente."
+      : compra.balanceDue <= 0
+        ? "Abono aplicado y cuenta saldada correctamente."
+        : "Abono aplicado correctamente.",
+    compra
+  });
 }));
 
 // Historial de ventas
 app.get("/ventas", asyncHandler(async (req, res) => {
   await hydrateStore([COLLECTIONS.ventas]);
-  res.json(ventas);
+  res.json(ventas.map(venta => ensureSaleFinancialState(venta)));
+}));
+
+app.get("/pagos-categorias", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.paymentCategories]);
+  const sortedCategories = paymentCategories.slice().sort((left, right) => String(left.nombre || '').localeCompare(String(right.nombre || ''), 'es', { sensitivity: 'base' }));
+  res.json(sortedCategories);
+}));
+
+app.post("/pagos-categorias", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.paymentCategories, COLLECTIONS.pagos]);
+  const originalId = String(req.body?.originalId || '').trim();
+  const nombre = String(req.body?.nombre || '').trim();
+  const descripcion = String(req.body?.descripcion || '').trim();
+  const normalizedName = nombre.toLowerCase();
+
+  if (!nombre) {
+    return res.status(400).json({ error: "El nombre de la clasificación es obligatorio." });
+  }
+
+  const duplicatedCategory = paymentCategories.find(item => String(item.nombre || '').trim().toLowerCase() === normalizedName && String(item.id) !== originalId);
+  if (duplicatedCategory) {
+    return res.status(409).json({ error: "Ya existe una clasificación con ese nombre." });
+  }
+
+  const now = new Date().toISOString();
+  if (originalId) {
+    const category = paymentCategories.find(item => String(item.id) === originalId);
+    if (!category) {
+      return res.status(404).json({ error: "Clasificación no encontrada." });
+    }
+
+    category.nombre = nombre;
+    category.descripcion = descripcion || null;
+    category.updatedAt = now;
+
+    pagos.forEach(payment => {
+      if (String(payment.categoriaId || '') === originalId) {
+        payment.categoriaNombre = nombre;
+        payment.updatedAt = now;
+      }
+    });
+
+    await commitBatch([
+      { type: 'set', collection: COLLECTIONS.paymentCategories, id: category.id, data: category },
+      ...pagos
+        .filter(payment => String(payment.categoriaId || '') === originalId)
+        .map(payment => ({ type: 'set', collection: COLLECTIONS.pagos, id: payment.id, data: payment }))
+    ]);
+
+    return res.json({ message: "Clasificación actualizada correctamente.", category });
+  }
+
+  const category = {
+    id: createDocId(COLLECTIONS.paymentCategories),
+    nombre,
+    descripcion: descripcion || null,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  paymentCategories.push(category);
+  await saveRecord(COLLECTIONS.paymentCategories, category);
+  res.status(201).json({ message: "Clasificación creada correctamente.", category });
+}));
+
+app.delete("/pagos-categorias/:id", asyncHandler(async (req, res) => {
+  await hydrateStore();
+  const { id } = req.params;
+  const categoryIndex = paymentCategories.findIndex(item => String(item.id) === String(id));
+  if (categoryIndex < 0) {
+    return res.status(404).json({ error: "Clasificación no encontrada." });
+  }
+
+  const categoryInUse = pagos.some(payment => String(payment.categoriaId || '') === String(id));
+  if (categoryInUse) {
+    return res.status(409).json({ error: "No se puede eliminar una clasificación que ya tiene pagos registrados." });
+  }
+
+  paymentCategories.splice(categoryIndex, 1);
+  await deleteRecord(COLLECTIONS.paymentCategories, id);
+  res.json({ message: "Clasificación eliminada correctamente." });
+}));
+
+app.get("/pagos", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.pagos]);
+  const sortedPayments = pagos.slice().sort((left, right) => new Date(right.fecha || right.createdAt || 0) - new Date(left.fecha || left.createdAt || 0));
+  res.json(sortedPayments);
+}));
+
+app.post("/pagos", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.pagos, COLLECTIONS.paymentCategories, COLLECTIONS.compras, COLLECTIONS.externalDebts]);
+  const descripcion = String(req.body?.descripcion || '').trim();
+  const beneficiario = String(req.body?.beneficiario || '').trim();
+  const categoriaId = String(req.body?.categoriaId || '').trim();
+  const observacion = String(req.body?.observacion || '').trim();
+  const referencia = String(req.body?.referencia || '').trim();
+  const paymentMethod = String(req.body?.paymentMethod || '').trim().toLowerCase();
+  const amount = Number(req.body?.monto);
+  const paymentDate = req.body?.fecha ? new Date(req.body.fecha) : new Date();
+  const category = paymentCategories.find(item => String(item.id) === categoriaId);
+
+  if (!descripcion) {
+    return res.status(400).json({ error: "La descripción del pago es obligatoria." });
+  }
+  if (!category) {
+    return res.status(400).json({ error: "Selecciona una clasificación válida para el pago." });
+  }
+  if (Number.isNaN(amount) || amount <= 0) {
+    return res.status(400).json({ error: "El monto del pago debe ser mayor a cero." });
+  }
+  if (Number.isNaN(paymentDate.getTime())) {
+    return res.status(400).json({ error: "La fecha del pago no es válida." });
+  }
+  if (!["efectivo", "transferencia", "tarjeta-credito"].includes(paymentMethod)) {
+    return res.status(400).json({ error: "El método del pago debe ser efectivo, transferencia o tarjeta de crédito." });
+  }
+  if (paymentMethod === 'transferencia' && !referencia) {
+    return res.status(400).json({ error: "La referencia es obligatoria para pagos por transferencia." });
+  }
+
+  const receiptNumber = paymentMethod === 'efectivo'
+    ? buildNextOutgoingReceiptNumber()
+    : null;
+  const resolvedReference = paymentMethod === 'efectivo'
+    ? receiptNumber
+    : (referencia || null);
+
+  const now = new Date().toISOString();
+  const payment = {
+    id: createDocId(COLLECTIONS.pagos),
+    descripcion,
+    beneficiario: beneficiario || null,
+    categoriaId: category.id,
+    categoriaNombre: category.nombre,
+    monto: amount,
+    fecha: paymentDate.toISOString(),
+    paymentMethod,
+    referencia: resolvedReference,
+    receiptNumber,
+    receiptIssuedAt: receiptNumber ? now : null,
+    observacion: observacion || null,
+    status: paymentMethod === 'tarjeta-credito' ? 'pendiente-reembolso' : 'registrado',
+    reimbursementMethod: paymentMethod === 'tarjeta-credito' ? 'transferencia' : null,
+    reimbursementReference: null,
+    reimbursedAt: null,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  pagos.push(payment);
+  await saveRecord(COLLECTIONS.pagos, payment);
+  res.status(201).json({
+    message: paymentMethod === 'tarjeta-credito'
+      ? 'Pago con tarjeta registrado como pendiente de reembolso.'
+      : paymentMethod === 'efectivo'
+        ? `Pago registrado correctamente. Recibo ${receiptNumber} generado.`
+        : 'Pago registrado correctamente.',
+    payment
+  });
+}));
+
+app.patch("/pagos/:id", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.pagos, COLLECTIONS.paymentCategories, COLLECTIONS.compras, COLLECTIONS.externalDebts]);
+  const { id } = req.params;
+  const payment = pagos.find(item => String(item.id) === String(id));
+  if (!payment) {
+    return res.status(404).json({ error: "Pago no encontrado." });
+  }
+
+  const descripcion = String(req.body?.descripcion || '').trim();
+  const beneficiario = String(req.body?.beneficiario || '').trim();
+  const categoriaId = String(req.body?.categoriaId || '').trim();
+  const observacion = String(req.body?.observacion || '').trim();
+  const referencia = String(req.body?.referencia || '').trim();
+  const paymentMethod = String(req.body?.paymentMethod || '').trim().toLowerCase();
+  const amount = Number(req.body?.monto);
+  const paymentDate = req.body?.fecha ? new Date(req.body.fecha) : new Date(payment.fecha || payment.createdAt || Date.now());
+  const category = paymentCategories.find(item => String(item.id) === categoriaId);
+
+  if (!descripcion) {
+    return res.status(400).json({ error: "La descripción del pago es obligatoria." });
+  }
+  if (!category) {
+    return res.status(400).json({ error: "Selecciona una clasificación válida para el pago." });
+  }
+  if (Number.isNaN(amount) || amount <= 0) {
+    return res.status(400).json({ error: "El monto del pago debe ser mayor a cero." });
+  }
+  if (Number.isNaN(paymentDate.getTime())) {
+    return res.status(400).json({ error: "La fecha del pago no es válida." });
+  }
+  if (!["efectivo", "transferencia", "tarjeta-credito"].includes(paymentMethod)) {
+    return res.status(400).json({ error: "El método del pago debe ser efectivo, transferencia o tarjeta de crédito." });
+  }
+  if (paymentMethod === 'transferencia' && !referencia) {
+    return res.status(400).json({ error: "La referencia es obligatoria para pagos por transferencia." });
+  }
+
+  const receiptNumber = paymentMethod === 'efectivo'
+    ? (payment.receiptNumber || buildNextOutgoingReceiptNumber())
+    : null;
+
+  payment.descripcion = descripcion;
+  payment.beneficiario = beneficiario || null;
+  payment.categoriaId = category.id;
+  payment.categoriaNombre = category.nombre;
+  payment.monto = amount;
+  payment.fecha = paymentDate.toISOString();
+  payment.paymentMethod = paymentMethod;
+  payment.referencia = paymentMethod === 'efectivo' ? receiptNumber : (referencia || null);
+  payment.receiptNumber = receiptNumber;
+  payment.receiptIssuedAt = paymentMethod === 'efectivo'
+    ? (payment.receiptIssuedAt || new Date().toISOString())
+    : null;
+  payment.observacion = observacion || null;
+  if (paymentMethod === 'tarjeta-credito') {
+    payment.status = payment.reimbursedAt ? 'reembolsado' : 'pendiente-reembolso';
+    payment.reimbursementMethod = payment.reimbursedAt ? (payment.reimbursementMethod || 'transferencia') : 'transferencia';
+  } else {
+    payment.status = 'registrado';
+    payment.reimbursementMethod = null;
+    payment.reimbursementReference = null;
+    payment.reimbursedAt = null;
+  }
+  payment.updatedAt = new Date().toISOString();
+
+  await saveRecord(COLLECTIONS.pagos, payment);
+  res.json({
+    message: paymentMethod === 'efectivo'
+      ? `Pago actualizado correctamente. Recibo ${receiptNumber} listo.`
+      : 'Pago actualizado correctamente.',
+    payment
+  });
+}));
+
+app.post("/pagos/:id/reembolsar", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.pagos]);
+  const { id } = req.params;
+  const payment = pagos.find(item => String(item.id) === String(id));
+  if (!payment) {
+    return res.status(404).json({ error: "Pago no encontrado." });
+  }
+  if (String(payment.paymentMethod || '') !== 'tarjeta-credito') {
+    return res.status(400).json({ error: "Solo los pagos con tarjeta de crédito pueden marcarse como reembolsados por transferencia." });
+  }
+  if (payment.reimbursedAt) {
+    return res.status(409).json({ error: "Este pago ya fue reembolsado." });
+  }
+
+  const reimbursementReference = String(req.body?.reimbursementReference || '').trim();
+  const reimbursementDate = req.body?.reimbursedAt ? new Date(req.body.reimbursedAt) : new Date();
+
+  if (!reimbursementReference) {
+    return res.status(400).json({ error: "La referencia de la transferencia es obligatoria para cerrar el reembolso." });
+  }
+  if (Number.isNaN(reimbursementDate.getTime())) {
+    return res.status(400).json({ error: "La fecha del reembolso no es válida." });
+  }
+
+  payment.reimbursementMethod = 'transferencia';
+  payment.reimbursementReference = reimbursementReference;
+  payment.reimbursedAt = reimbursementDate.toISOString();
+  payment.status = 'reembolsado';
+  payment.updatedAt = new Date().toISOString();
+
+  await saveRecord(COLLECTIONS.pagos, payment);
+  res.json({ message: "Reembolso por transferencia registrado correctamente.", payment });
+}));
+
+app.post("/pagos/reembolsar-lote", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.pagos]);
+  const paymentIds = Array.isArray(req.body?.paymentIds)
+    ? req.body.paymentIds.map(id => String(id || '').trim()).filter(Boolean)
+    : [];
+  const uniqueIds = Array.from(new Set(paymentIds));
+  const reimbursementReference = String(req.body?.reimbursementReference || '').trim();
+  const reimbursementDate = req.body?.reimbursedAt ? new Date(req.body.reimbursedAt) : new Date();
+
+  if (!uniqueIds.length) {
+    return res.status(400).json({ error: "Selecciona al menos un pago pendiente para registrar el reembolso." });
+  }
+  if (!reimbursementReference) {
+    return res.status(400).json({ error: "La referencia de la transferencia es obligatoria para cerrar el reembolso." });
+  }
+  if (Number.isNaN(reimbursementDate.getTime())) {
+    return res.status(400).json({ error: "La fecha del reembolso no es válida." });
+  }
+
+  const selectedPayments = uniqueIds.map(id => pagos.find(item => String(item.id) === id));
+  if (selectedPayments.some(payment => !payment)) {
+    return res.status(404).json({ error: "Uno o más pagos no fueron encontrados." });
+  }
+  if (selectedPayments.some(payment => String(payment.paymentMethod || '') !== 'tarjeta-credito')) {
+    return res.status(400).json({ error: "Solo los pagos con tarjeta de crédito pueden marcarse como reembolsados por transferencia." });
+  }
+  if (selectedPayments.some(payment => payment.reimbursedAt)) {
+    return res.status(409).json({ error: "Uno o más pagos seleccionados ya fueron reembolsados." });
+  }
+
+  const updatedAt = new Date().toISOString();
+  selectedPayments.forEach(payment => {
+    payment.reimbursementMethod = 'transferencia';
+    payment.reimbursementReference = reimbursementReference;
+    payment.reimbursedAt = reimbursementDate.toISOString();
+    payment.status = 'reembolsado';
+    payment.updatedAt = updatedAt;
+  });
+
+  await commitBatch(selectedPayments.map(payment => ({
+    type: 'set',
+    collection: COLLECTIONS.pagos,
+    id: payment.id,
+    data: payment
+  })));
+
+  res.json({
+    message: uniqueIds.length === 1
+      ? 'Reembolso por transferencia registrado correctamente.'
+      : `Transferencia registrada correctamente para ${uniqueIds.length} pagos.`,
+    payments: selectedPayments
+  });
+}));
+
+app.get("/efectivo/traslados", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.fundTransfers]);
+  const sortedTransfers = fundTransfers
+    .slice()
+    .sort((left, right) => new Date(right.fecha || right.createdAt || 0) - new Date(left.fecha || left.createdAt || 0));
+  res.json(sortedTransfers);
+}));
+
+app.get("/efectivo/configuracion", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.fundSettings]);
+  res.json(getCurrentFundSettings());
+}));
+
+app.post("/efectivo/configuracion", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.fundSettings]);
+
+  const openingCashBalance = normalizeNonNegativeAmount(req.body?.openingCashBalance);
+  const openingBankBalance = normalizeNonNegativeAmount(req.body?.openingBankBalance);
+  const minimumCashReserve = normalizeNonNegativeAmount(req.body?.minimumCashReserve);
+
+  if (openingCashBalance === null || openingBankBalance === null || minimumCashReserve === null) {
+    return res.status(400).json({ error: "Los saldos iniciales y el fondo mínimo deben ser números mayores o iguales a cero." });
+  }
+
+  const currentSettings = getCurrentFundSettings();
+  const now = new Date().toISOString();
+  const nextSettings = {
+    ...currentSettings,
+    id: currentSettings.id || 'main',
+    openingCashBalance,
+    openingBankBalance,
+    minimumCashReserve,
+    createdAt: currentSettings.createdAt || now,
+    updatedAt: now
+  };
+
+  fundSettings = [nextSettings];
+  await saveRecord(COLLECTIONS.fundSettings, nextSettings);
+  res.json({ message: "Configuración de efectivo y bancos guardada correctamente.", settings: nextSettings });
+}));
+
+app.post("/efectivo/traslados", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.fundTransfers]);
+  const fromAccount = normalizeFundAccount(req.body?.fromAccount);
+  const toAccount = normalizeFundAccount(req.body?.toAccount);
+  const amount = Number(req.body?.amount);
+  const transferDate = req.body?.fecha ? new Date(req.body.fecha) : new Date();
+  const description = String(req.body?.description || '').trim();
+  const reference = String(req.body?.reference || '').trim();
+  const note = String(req.body?.note || '').trim();
+
+  if (!fromAccount || !toAccount) {
+    return res.status(400).json({ error: "Debes seleccionar una cuenta origen y una cuenta destino válidas." });
+  }
+  if (fromAccount === toAccount) {
+    return res.status(400).json({ error: "El origen y el destino del traslado deben ser distintos." });
+  }
+  if (Number.isNaN(amount) || amount <= 0) {
+    return res.status(400).json({ error: "El monto del traslado debe ser mayor a cero." });
+  }
+  if (Number.isNaN(transferDate.getTime())) {
+    return res.status(400).json({ error: "La fecha del traslado no es válida." });
+  }
+
+  const now = new Date().toISOString();
+  const transfer = {
+    id: createDocId(COLLECTIONS.fundTransfers),
+    fromAccount,
+    toAccount,
+    amount,
+    fecha: transferDate.toISOString(),
+    description: description || `Traslado de ${fromAccount} a ${toAccount}`,
+    reference: reference || null,
+    note: note || null,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  fundTransfers.push(transfer);
+  await saveRecord(COLLECTIONS.fundTransfers, transfer);
+  res.status(201).json({ message: "Traslado de fondos registrado correctamente.", transfer });
 }));
 
 app.get("/inventario/movimientos", asyncHandler(async (req, res) => {
@@ -2825,7 +3576,6 @@ app.post("/ventas/:id/pagar", asyncHandler(async (req, res) => {
   await hydrateStore();
   const { id } = req.params;
   const venta = ventas.find(item => String(item.id) === String(id));
-  const hadPaidAt = Boolean(venta?.paidAt);
 
   if (!venta) {
     return res.status(404).json({ error: "Venta no encontrada." });
@@ -2856,22 +3606,228 @@ app.post("/ventas/:id/pagar", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "La referencia es obligatoria para tarjeta o transferencia." });
   }
 
-  const totalAmount = Array.isArray(venta.items)
-    ? venta.items.reduce((sum, item) => sum + Number(item.precio || 0) * Number(item.cantidad || 0) + (Array.isArray(item.adicionales) ? item.adicionales.reduce((addonsSum, adicional) => addonsSum + Number(adicional.cantidad || 0) * Number(adicional.precio || 0), 0) : 0), 0)
-    : 0;
+  ensureSaleFinancialState(venta);
+  const totalAmount = Number(venta.totalAmount || calculateSaleInvoiceTotal(venta));
+  const paymentAmount = isCreditSale
+    ? Number(req.body?.amount)
+    : totalAmount;
+
+  if (isCreditSale) {
+    if (Number.isNaN(paymentAmount) || paymentAmount <= 0) {
+      return res.status(400).json({ error: "El monto del abono debe ser mayor a cero." });
+    }
+    if (paymentAmount - Number(venta.balanceDue || 0) > 0.0001) {
+      return res.status(400).json({ error: "El abono no puede ser mayor que el saldo pendiente." });
+    }
+  }
+
   const currentCashReceived = Number(venta.cashReceived);
   const currentCashChange = Number(venta.cashChange);
 
   venta.originalPaymentType = originalPaymentType || (isCashSale ? 'contado' : 'credito');
   venta.paymentType = isCashSale ? 'contado' : 'credito';
-  venta.paymentMethod = paymentMethod;
-  venta.paymentReference = paymentReference || null;
   venta.cashReceived = Number.isFinite(currentCashReceived) && currentCashReceived >= 0 ? currentCashReceived : totalAmount;
   venta.cashChange = Number.isFinite(currentCashChange) && currentCashChange >= 0 ? currentCashChange : 0;
-  venta.paidAt = paidAt.toISOString();
+  venta.paymentHistory = isCashSale
+    ? [{
+      id: crypto.randomUUID(),
+      amount: totalAmount,
+      date: paidAt.toISOString(),
+      paymentMethod,
+      paymentReference: paymentReference || null,
+      note: 'Pago actualizado de venta de contado',
+      account: getAccountFromPaymentMethod(paymentMethod),
+      createdAt: new Date().toISOString()
+    }]
+    : [
+      ...(Array.isArray(venta.paymentHistory) ? venta.paymentHistory : []),
+      {
+        id: crypto.randomUUID(),
+        amount: paymentAmount,
+        date: paidAt.toISOString(),
+        paymentMethod,
+        paymentReference: paymentReference || null,
+        note: 'Abono a venta a crédito',
+        account: getAccountFromPaymentMethod(paymentMethod),
+        createdAt: new Date().toISOString()
+      }
+    ];
+
+  ensureSaleFinancialState(venta);
 
   await saveRecord(COLLECTIONS.ventas, venta);
-  res.json({ message: hadPaidAt ? "Pago actualizado correctamente." : "Pago aplicado correctamente.", venta });
+  res.json({
+    message: isCashSale
+      ? "Pago actualizado correctamente."
+      : venta.balanceDue <= 0
+        ? "Abono aplicado y cuenta saldada correctamente."
+        : "Abono aplicado correctamente.",
+    venta
+  });
+}));
+
+app.get("/deudas-externas", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.externalDebts]);
+  const sortedDebts = externalDebts
+    .map(debt => ensureExternalDebtFinancialState(debt))
+    .slice()
+    .sort((left, right) => new Date(right.fecha || right.createdAt || 0) - new Date(left.fecha || left.createdAt || 0));
+  res.json(sortedDebts);
+}));
+
+app.post("/deudas-externas", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.externalDebts]);
+  const tercero = String(req.body?.tercero || '').trim();
+  const concepto = String(req.body?.concepto || '').trim();
+  const tipo = String(req.body?.type || req.body?.tipo || '').trim().toLowerCase() === 'por-cobrar' ? 'por-cobrar' : 'por-pagar';
+  const fecha = req.body?.fecha ? new Date(req.body.fecha) : new Date();
+  const dueDate = req.body?.dueDate ? new Date(req.body.dueDate) : null;
+  const monto = normalizeNonNegativeAmount(req.body?.originalAmount ?? req.body?.monto ?? req.body?.amount);
+  const observacion = String(req.body?.observacion || req.body?.note || '').trim();
+
+  if (!tercero) {
+    return res.status(400).json({ error: "El tercero es obligatorio." });
+  }
+  if (!concepto) {
+    return res.status(400).json({ error: "El concepto es obligatorio." });
+  }
+  if (!fecha || Number.isNaN(fecha.getTime())) {
+    return res.status(400).json({ error: "La fecha no es válida." });
+  }
+  if (dueDate && Number.isNaN(dueDate.getTime())) {
+    return res.status(400).json({ error: "La fecha de vencimiento no es válida." });
+  }
+  if (monto === null || monto <= 0) {
+    return res.status(400).json({ error: "El monto debe ser mayor a cero." });
+  }
+
+  const now = new Date().toISOString();
+  const debt = ensureExternalDebtFinancialState({
+    id: createDocId(COLLECTIONS.externalDebts),
+    type: tipo,
+    tercero,
+    concepto,
+    fecha: fecha.toISOString(),
+    dueDate: dueDate ? dueDate.toISOString() : null,
+    originalAmount: monto,
+    paymentHistory: [],
+    observacion: observacion || null,
+    createdAt: now,
+    updatedAt: now
+  });
+
+  externalDebts.push(debt);
+  await saveRecord(COLLECTIONS.externalDebts, debt);
+  res.status(201).json({ message: "Deuda externa registrada correctamente.", debt });
+}));
+
+app.patch("/deudas-externas/:id", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.externalDebts]);
+  const { id } = req.params;
+  const debt = externalDebts.find(item => String(item.id) === String(id));
+  if (!debt) {
+    return res.status(404).json({ error: "Deuda externa no encontrada." });
+  }
+
+  ensureExternalDebtFinancialState(debt);
+  const tercero = String(req.body?.tercero || '').trim();
+  const concepto = String(req.body?.concepto || '').trim();
+  const tipo = String(req.body?.type || req.body?.tipo || '').trim().toLowerCase() === 'por-cobrar' ? 'por-cobrar' : 'por-pagar';
+  const fecha = req.body?.fecha ? new Date(req.body.fecha) : new Date(debt.fecha || Date.now());
+  const dueDate = req.body?.dueDate ? new Date(req.body.dueDate) : null;
+  const monto = normalizeNonNegativeAmount(req.body?.originalAmount ?? req.body?.monto ?? req.body?.amount);
+  const observacion = String(req.body?.observacion || req.body?.note || '').trim();
+
+  if (!tercero) {
+    return res.status(400).json({ error: "El tercero es obligatorio." });
+  }
+  if (!concepto) {
+    return res.status(400).json({ error: "El concepto es obligatorio." });
+  }
+  if (!fecha || Number.isNaN(fecha.getTime())) {
+    return res.status(400).json({ error: "La fecha no es válida." });
+  }
+  if (dueDate && Number.isNaN(dueDate.getTime())) {
+    return res.status(400).json({ error: "La fecha de vencimiento no es válida." });
+  }
+  if (monto === null || monto <= 0) {
+    return res.status(400).json({ error: "El monto debe ser mayor a cero." });
+  }
+  if (monto + 0.0001 < Number(debt.totalPaid || 0)) {
+    return res.status(400).json({ error: "El monto original no puede ser menor que lo ya abonado." });
+  }
+
+  debt.type = tipo;
+  debt.tercero = tercero;
+  debt.concepto = concepto;
+  debt.fecha = fecha.toISOString();
+  debt.dueDate = dueDate ? dueDate.toISOString() : null;
+  debt.originalAmount = monto;
+  debt.observacion = observacion || null;
+  debt.updatedAt = new Date().toISOString();
+  ensureExternalDebtFinancialState(debt);
+
+  await saveRecord(COLLECTIONS.externalDebts, debt);
+  res.json({ message: "Deuda externa actualizada correctamente.", debt });
+}));
+
+app.post("/deudas-externas/:id/abonos", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.externalDebts, COLLECTIONS.pagos, COLLECTIONS.compras]);
+  const { id } = req.params;
+  const debt = externalDebts.find(item => String(item.id) === String(id));
+  if (!debt) {
+    return res.status(404).json({ error: "Deuda externa no encontrada." });
+  }
+
+  ensureExternalDebtFinancialState(debt);
+  const amount = normalizeNonNegativeAmount(req.body?.amount ?? req.body?.monto);
+  const fecha = req.body?.date || req.body?.fecha ? new Date(req.body?.date || req.body?.fecha) : new Date();
+  const account = normalizeFundAccount(req.body?.account);
+  const paymentReference = String(req.body?.paymentReference || req.body?.referencia || '').trim();
+  const note = String(req.body?.note || req.body?.observacion || '').trim();
+
+  if (amount === null || amount <= 0) {
+    return res.status(400).json({ error: "El monto del abono debe ser mayor a cero." });
+  }
+  if (Number.isNaN(fecha.getTime())) {
+    return res.status(400).json({ error: "La fecha del abono no es válida." });
+  }
+  if (!account) {
+    return res.status(400).json({ error: "Selecciona si el abono se hizo por efectivo o bancos." });
+  }
+  if (amount - Number(debt.balanceDue || 0) > 0.0001) {
+    return res.status(400).json({ error: "El abono no puede ser mayor que el saldo pendiente." });
+  }
+
+  const receiptNumber = account === 'efectivo'
+    ? buildNextOutgoingReceiptNumber()
+    : null;
+  const resolvedPaymentReference = account === 'efectivo'
+    ? receiptNumber
+    : (paymentReference || null);
+
+  debt.paymentHistory = [
+    ...(Array.isArray(debt.paymentHistory) ? debt.paymentHistory : []),
+    {
+      id: crypto.randomUUID(),
+      amount,
+      date: fecha.toISOString(),
+      account,
+      paymentMethod: account === 'efectivo' ? 'efectivo' : 'transferencia',
+      paymentReference: resolvedPaymentReference,
+      receiptNumber,
+      note: note || null,
+      createdAt: new Date().toISOString()
+    }
+  ];
+  debt.updatedAt = new Date().toISOString();
+  ensureExternalDebtFinancialState(debt);
+
+  await saveRecord(COLLECTIONS.externalDebts, debt);
+  res.json({
+    message: debt.balanceDue <= 0 ? 'Abono aplicado y deuda saldada correctamente.' : 'Abono aplicado correctamente.',
+    debt
+  });
 }));
 
 // Eliminar producto si no tiene movimientos vinculados
