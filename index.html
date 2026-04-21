@@ -46,6 +46,7 @@
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: radial-gradient(circle at top left, #eef2ff 0%, #f8fafc 42%, #f5f7ff 100%);
       color: var(--text);
+      overflow-x: hidden;
       transition: background 0.25s ease, color 0.25s ease;
     }
 
@@ -416,6 +417,10 @@
       overflow: hidden;
     }
 
+    .module-main {
+      min-width: 0;
+    }
+
     .module-header {
       display: flex;
       flex-direction: column;
@@ -449,6 +454,7 @@
       width: auto;
       min-width: 112px;
       padding: 10px 14px;
+      white-space: nowrap;
     }
 
     .mobile-nav-bar-copy {
@@ -1216,6 +1222,12 @@
       background: rgba(255, 255, 255, 0.98);
       box-shadow: 0 18px 36px rgba(15, 23, 42, 0.05);
       position: relative;
+    }
+
+    .table-container,
+    .purchase-history,
+    .product-table-shell {
+      -webkit-overflow-scrolling: touch;
     }
 
     .product-table-head {
@@ -2335,6 +2347,7 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
+      margin-bottom: 12px;
     }
 
     .field.field-hidden {
@@ -2587,7 +2600,8 @@
     }
 
     input,
-    select {
+    select,
+    textarea {
       border: 1px solid rgba(15, 23, 42, 0.12);
       border-radius: 16px;
       padding: 14px 16px;
@@ -2609,14 +2623,17 @@
 
     input:hover,
     select:hover,
+    textarea:hover,
     input:focus,
-    select:focus {
+    select:focus,
+    textarea:focus {
       border-color: rgba(91, 108, 255, 0.4);
       box-shadow: 0 0 0 4px rgba(91, 108, 255, 0.08);
     }
 
     input:focus,
-    select:focus {
+    select:focus,
+    textarea:focus {
       outline: none;
       border-color: rgba(91, 108, 255, 0.4);
       transform: translateY(-1px);
@@ -2731,9 +2748,11 @@
       cursor: pointer;
       border-radius: 12px;
       padding: 8px 12px;
+      min-height: 44px;
       font-size: 0.9rem;
       font-weight: 700;
       transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+      touch-action: manipulation;
     }
 
     button[type="submit"],
@@ -3050,6 +3069,67 @@
     .sell-btn:hover {
       transform: translateY(-1px);
       box-shadow: 0 20px 40px rgba(91, 108, 255, 0.22);
+    }
+
+    button:disabled,
+    .secondary-btn:disabled,
+    .sell-btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.72;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: min(360px, calc(100vw - 32px));
+      z-index: 400;
+      pointer-events: none;
+    }
+
+    .toast-notification {
+      pointer-events: auto;
+      border-radius: 16px;
+      padding: 14px 16px;
+      color: #ffffff;
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
+      opacity: 0;
+      transform: translateY(-10px) scale(0.98);
+      transition: opacity 0.24s ease, transform 0.24s ease;
+      font-size: 0.94rem;
+      line-height: 1.45;
+      font-weight: 600;
+    }
+
+    .toast-notification.is-visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+
+    .toast-notification.is-leaving {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.98);
+    }
+
+    .toast-notification.success {
+      background: linear-gradient(135deg, #059669, #10b981);
+    }
+
+    .toast-notification.error {
+      background: linear-gradient(135deg, #dc2626, #ef4444);
+    }
+
+    body.theme-dark .toast-notification.success {
+      background: linear-gradient(135deg, #047857, #10b981);
+    }
+
+    body.theme-dark .toast-notification.error {
+      background: linear-gradient(135deg, #b91c1c, #ef4444);
     }
 
     .actions {
@@ -3503,6 +3583,160 @@
       }
 
     }
+
+    @media (max-width: 768px) {
+      .page {
+        padding: 10px;
+      }
+
+      .panel {
+        padding: 12px;
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
+      }
+
+      .form-row,
+      .actions,
+      .security-user-actions,
+      .purchase-summary-actions,
+      .sale-print-actions,
+      .purchase-form-actions,
+      .mobile-nav-bar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .form-grid,
+      .purchase-form-grid,
+      .sale-form-grid,
+      .security-layout,
+      .permission-grid,
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .module-layout {
+        flex-direction: column;
+        min-height: auto;
+        height: auto;
+        overflow: visible;
+      }
+
+      input,
+      select,
+      textarea,
+      .searchable-picker-trigger {
+        width: 100%;
+        font-size: 16px;
+      }
+
+      button,
+      .sell-btn,
+      .secondary-btn,
+      .module-tab,
+      .purchase-tab {
+        width: 100%;
+        min-height: 44px;
+        font-size: 16px;
+        padding: 12px;
+      }
+
+      .product-table-shell,
+      .purchase-history,
+      .purchase-caja-float,
+      .table-container {
+        overflow-x: auto;
+      }
+
+      .product-table,
+      .history-table,
+      .cash-table,
+      .control-active-table {
+        display: block;
+        width: max-content;
+        min-width: 100%;
+      }
+
+      .mobile-nav-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.48);
+        backdrop-filter: blur(6px);
+        border: none;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+        z-index: 999;
+      }
+
+      .mobile-nav-bar {
+        display: flex;
+      }
+
+      .sidebar {
+        position: fixed;
+        left: -100%;
+        top: 0;
+        width: 260px;
+        max-width: 80vw;
+        height: 100%;
+        padding: 20px 16px 18px;
+        border-right: 1px solid var(--border);
+        border-radius: 0 24px 24px 0;
+        overflow-y: auto;
+        transition: left 0.3s ease;
+        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+        z-index: 1000;
+      }
+
+      .sidebar.active {
+        left: 0;
+      }
+
+      body.mobile-nav-open {
+        overflow: hidden;
+      }
+
+      body.mobile-nav-open .mobile-nav-backdrop {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      body.mobile-nav-open .mobile-nav-bar {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .product-modal {
+        padding: 10px;
+        align-items: flex-start;
+      }
+
+      .product-modal-dialog,
+      .product-picker-dialog,
+      .sale-flavor-editor {
+        width: min(95vw, 100%);
+        height: auto;
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+
+      .toast-container {
+        top: auto;
+        right: 10px;
+        bottom: 10px;
+        left: 10px;
+        width: auto;
+      }
+
+      .toast-notification {
+        font-size: 0.92rem;
+      }
+    }
   </style>
 </head>
 <body class="auth-locked">
@@ -3574,7 +3808,7 @@
     <section class="panel">
       <button type="button" id="mobile-nav-backdrop" class="mobile-nav-backdrop" aria-label="Cerrar menú lateral"></button>
       <div class="mobile-nav-bar">
-        <button type="button" id="mobile-nav-toggle" class="secondary-btn mobile-nav-toggle" aria-controls="app-sidebar" aria-expanded="false">Menú</button>
+        <button type="button" id="mobile-nav-toggle" class="secondary-btn mobile-nav-toggle" aria-controls="app-sidebar" aria-expanded="false">☰ Menú</button>
         <div class="mobile-nav-bar-copy">
           <strong>Heladería MESA</strong>
           <span id="mobile-nav-current-module">Dashboard</span>
@@ -6173,6 +6407,92 @@
       }
     }
 
+    let toastContainer = null;
+
+    function getToastContainer() {
+      if (toastContainer?.isConnected) {
+        return toastContainer;
+      }
+      toastContainer = document.createElement('div');
+      toastContainer.className = 'toast-container';
+      document.body.appendChild(toastContainer);
+      return toastContainer;
+    }
+
+    function renderToast(message, type = 'success', duration = 3600) {
+      const content = String(message || '').trim();
+      if (!content) {
+        return;
+      }
+
+      const container = getToastContainer();
+      const toast = document.createElement('div');
+      toast.className = `toast-notification ${type === 'error' ? 'error' : 'success'}`;
+      toast.textContent = content;
+      container.appendChild(toast);
+
+      requestAnimationFrame(() => {
+        toast.classList.add('is-visible');
+      });
+
+      const removeToast = () => {
+        toast.classList.remove('is-visible');
+        toast.classList.add('is-leaving');
+        window.setTimeout(() => toast.remove(), 240);
+      };
+
+      window.setTimeout(removeToast, duration);
+    }
+
+    function showError(message) {
+      const normalizedMessage = String(message || '').trim() || 'No se pudo completar la acción. Intenta nuevamente.';
+      renderToast(normalizedMessage, 'error');
+    }
+
+    function showSuccess(message) {
+      const normalizedMessage = String(message || '').trim() || 'Guardado correctamente';
+      renderToast(normalizedMessage, 'success');
+    }
+
+    function setLoadingState(target, isLoading, { label = 'Cargando...' } = {}) {
+      const button = target instanceof HTMLButtonElement
+        ? target
+        : target?.querySelector?.('button[type="submit"]');
+
+      if (!button) {
+        return !isLoading;
+      }
+
+      if (isLoading) {
+        if (button.dataset.loadingActive === 'true') {
+          return false;
+        }
+        button.dataset.loadingActive = 'true';
+        button.dataset.loadingLabel = label;
+        if (!button.dataset.originalText) {
+          button.dataset.originalText = button.textContent;
+        }
+        button.disabled = true;
+        button.textContent = label;
+        if (target?.dataset) {
+          target.dataset.loading = 'true';
+        }
+        return true;
+      }
+
+      button.disabled = false;
+      if (button.textContent === (button.dataset.loadingLabel || label) && button.dataset.originalText) {
+        button.textContent = button.dataset.originalText;
+      }
+      delete button.dataset.loadingActive;
+      delete button.dataset.loadingLabel;
+      delete button.dataset.originalText;
+      if (target?.dataset) {
+        delete target.dataset.loading;
+      }
+      return true;
+    }
+
     function setAuthStatus(message, { error = false } = {}) {
       if (!authStatus) return;
       authStatus.textContent = message;
@@ -6393,6 +6713,9 @@
 
     function handleUnauthorizedSession(message = 'La sesión expiró o ya no es válida. Inicia sesión nuevamente.') {
       const shouldShowMessage = !document.body.classList.contains('auth-locked');
+      if (shouldShowMessage) {
+        showError(message || 'Sesión expirada');
+      }
       clearAuthenticatedState({
         message: shouldShowMessage ? message : '',
         error: shouldShowMessage
@@ -6518,7 +6841,7 @@
 
     if (mobileNavToggleButton) {
       mobileNavToggleButton.addEventListener('click', () => {
-        setMobileNavOpen(!document.body.classList.contains('mobile-nav-open'));
+        toggleSidebar();
       });
     }
 
@@ -6550,6 +6873,9 @@
 
     authLoginForm.addEventListener('submit', async event => {
       event.preventDefault();
+      if (!setLoadingState(authLoginForm, true, { label: 'Validando...' })) {
+        return;
+      }
       try {
         setAuthStatus('Validando acceso...');
         const response = await fetch(buildApiUrl('/auth/login'), {
@@ -6571,8 +6897,12 @@
         persistAuthUser(result.user || null);
         authLoginForm.reset();
         await startAuthenticatedApp();
+        showSuccess(`Bienvenido, ${result.user?.nombre || result.user?.username || 'usuario'}.`);
       } catch (error) {
         setAuthStatus(error.message, { error: true });
+        showError(error.message);
+      } finally {
+        setLoadingState(authLoginForm, false);
       }
     });
 
@@ -6580,6 +6910,11 @@
       event.preventDefault();
       if (authBootstrapPasswordInput.value !== authBootstrapPasswordConfirmInput.value) {
         setAuthStatus('Las contraseñas no coinciden.', { error: true });
+        showError('Las contraseñas no coinciden.');
+        return;
+      }
+
+      if (!setLoadingState(authBootstrapForm, true, { label: 'Creando...' })) {
         return;
       }
 
@@ -6606,8 +6941,12 @@
         persistAuthUser(result.user || null);
         authBootstrapForm.reset();
         await startAuthenticatedApp();
+        showSuccess('Administrador creado correctamente.');
       } catch (error) {
         setAuthStatus(error.message, { error: true });
+        showError(error.message);
+      } finally {
+        setLoadingState(authBootstrapForm, false);
       }
     });
 
@@ -6620,6 +6959,9 @@
     if (securityUserForm) {
       securityUserForm.addEventListener('submit', async event => {
         event.preventDefault();
+        if (!setLoadingState(securityUserForm, true, { label: 'Guardando...' })) {
+          return;
+        }
         try {
           securityUserStatus.textContent = 'Creando usuario...';
           const role = securityUserRoleInput.value;
@@ -6645,8 +6987,12 @@
           renderSecurityCreatePermissions();
           securityUserStatus.textContent = `Usuario ${result.user?.username || ''} creado correctamente.`.trim();
           await fetchAdminUsers();
+          showSuccess(securityUserStatus.textContent);
         } catch (error) {
           securityUserStatus.textContent = error.message || 'No se pudo crear el usuario.';
+          showError(securityUserStatus.textContent);
+        } finally {
+          setLoadingState(securityUserForm, false);
         }
       });
     }
@@ -8360,11 +8706,26 @@
     }
 
     function setMobileNavOpen(isOpen) {
+      const sidebar = document.querySelector('.sidebar');
       const shouldOpen = Boolean(isOpen) && isMobileNavLayout() && !document.body.classList.contains('auth-locked');
       document.body.classList.toggle('mobile-nav-open', shouldOpen);
+      if (sidebar) {
+        sidebar.classList.toggle('active', shouldOpen);
+      } else if (shouldOpen) {
+        console.warn('No se encontró el sidebar para el menú móvil.');
+      }
       if (mobileNavToggleButton) {
         mobileNavToggleButton.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
       }
+    }
+
+    function toggleSidebar() {
+      const sidebar = document.querySelector('.sidebar');
+      if (!sidebar) {
+        console.warn('No se encontró el sidebar para alternar el menú móvil.');
+        return;
+      }
+      setMobileNavOpen(!sidebar.classList.contains('active'));
     }
 
     function closeMobileNav() {
@@ -9242,6 +9603,7 @@
 
       if (!payingPurchaseId) {
         setPurchasePayableStatus('No se encontró la cuenta por pagar seleccionada.', { error: true });
+        showError('No se encontró la cuenta por pagar seleccionada.');
         return;
       }
 
@@ -9254,11 +9616,17 @@
 
       if (!payload.paymentMethod || !payload.paidAt || Number.isNaN(payload.amount) || payload.amount <= 0) {
         setPurchasePayableStatus('Selecciona un método y una fecha de pago válidos.', { error: true });
+        showError('Selecciona un método y una fecha de pago válidos.');
         return;
       }
 
       if (requiresPaymentReference(payload.paymentMethod) && !payload.paymentReference) {
         setPurchasePayableStatus('La referencia es obligatoria para tarjeta o transferencia.', { error: true });
+        showError('La referencia es obligatoria para tarjeta o transferencia.');
+        return;
+      }
+
+      if (!setLoadingState(purchasePayableForm, true, { label: 'Aplicando...' })) {
         return;
       }
 
@@ -9278,6 +9646,7 @@
 
         purchaseStatus.className = 'status';
         purchaseStatus.textContent = result.message || 'Pago aplicado correctamente.';
+  showSuccess(result.message || 'Pago aplicado correctamente.');
         closePurchasePayableModalPanel();
         await fetchCompras();
         renderPurchaseRegistro();
@@ -9287,7 +9656,10 @@
         }
       } catch (error) {
         setPurchasePayableStatus(error.message, { error: true });
+        showError(error.message);
         console.error(error);
+      } finally {
+        setLoadingState(purchasePayableForm, false);
       }
     });
 
@@ -9296,6 +9668,7 @@
 
       if (!payingSaleId) {
         setSalePayableStatus('No se encontró la cuenta por cobrar seleccionada.', { error: true });
+        showError('No se encontró la cuenta por cobrar seleccionada.');
         return;
       }
 
@@ -9308,11 +9681,17 @@
 
       if (!payload.paymentMethod || !payload.paidAt || Number.isNaN(payload.amount) || payload.amount <= 0) {
         setSalePayableStatus('Selecciona un método y una fecha de pago válidos.', { error: true });
+        showError('Selecciona un método y una fecha de pago válidos.');
         return;
       }
 
       if (requiresPaymentReference(payload.paymentMethod) && !payload.paymentReference) {
         setSalePayableStatus('La referencia es obligatoria para tarjeta o transferencia.', { error: true });
+        showError('La referencia es obligatoria para tarjeta o transferencia.');
+        return;
+      }
+
+      if (!setLoadingState(salePayableForm, true, { label: 'Aplicando...' })) {
         return;
       }
 
@@ -9330,13 +9709,17 @@
 
         saleStatus.className = 'status';
         saleStatus.textContent = result.message || 'Pago aplicado correctamente.';
+        showSuccess(result.message || 'Pago aplicado correctamente.');
         closeSalePayableModalPanel();
         await fetchVentas();
         renderSaleRegistro();
         renderSaleReceivables();
       } catch (error) {
         setSalePayableStatus(error.message, { error: true });
+        showError(error.message);
         console.error(error);
+      } finally {
+        setLoadingState(salePayableForm, false);
       }
     });
 
@@ -14927,6 +15310,10 @@
     }
 
     async function buildApiError(response, fallbackMessage) {
+      if (response.status === 401) {
+        return 'Sesión expirada';
+      }
+
       let parsedMessage = '';
       const rawText = await response.text();
       if (rawText) {
@@ -14939,6 +15326,9 @@
       }
 
       const cleanMessage = String(parsedMessage || '').trim();
+      if (response.status === 400 && !cleanMessage) {
+        return 'Datos incompletos';
+      }
       return cleanMessage ? `Error ${response.status}: ${cleanMessage}` : fallbackMessage;
     }
 
@@ -14991,30 +15381,39 @@
       const priceInvalid = tipo !== 'materia prima' && Number.isNaN(newProduct.precio);
       if (!newProduct.nombre || priceInvalid || Number.isNaN(newProduct.stockMin) || !newProduct.tipo) {
         setProductStatus('Completa todos los campos con valores válidos.', { error: true });
+        showError('Completa todos los campos con valores válidos.');
         return;
       }
       if (!controlMode) {
         setProductStatus('Selecciona el modo de control del producto.', { error: true });
+        showError('Selecciona el modo de control del producto.');
         return;
       }
       if (tipo === 'materia prima' && !newProduct.medida) {
         setProductStatus('Agrega la medición para la materia prima.', { error: true });
+        showError('Agrega la medición para la materia prima.');
         return;
       }
       if (tipo === 'materia prima' && (!Number.isInteger(newProduct.rendimientoPorCompra) || newProduct.rendimientoPorCompra <= 0)) {
         setProductStatus('Define cuántas porciones rinde cada unidad comprada de la materia prima.', { error: true });
+        showError('Define cuántas porciones rinde cada unidad comprada de la materia prima.');
         return;
       }
       if ((controlMode === 'receta' || controlMode === 'mixto') && !newProduct.ingredientes.length) {
         setProductStatus('Agrega al menos un ingrediente para los productos con receta.', { error: true });
+        showError('Agrega al menos un ingrediente para los productos con receta.');
         return;
       }
       if ((controlMode === 'helado-sabores' || controlMode === 'mixto') && (!Number.isInteger(newProduct.pelotasPorUnidad) || newProduct.pelotasPorUnidad <= 0)) {
         setProductStatus('Define cuántas porciones o pelotas variables lleva por unidad este producto.', { error: true });
+        showError('Define cuántas porciones o pelotas variables lleva por unidad este producto.');
         return;
       }
 
       const wasEditing = Boolean(editingProductId);
+      if (!setLoadingState(productForm, true, { label: wasEditing ? 'Guardando...' : 'Guardando...' })) {
+        return;
+      }
       try {
         setProductStatus(wasEditing ? 'Actualizando producto...' : 'Agregando producto...');
         const response = await fetch(apiUrl(), {
@@ -15031,9 +15430,13 @@
         closeProductModalPanel();
         setProductStatus(wasEditing ? 'Producto actualizado con éxito.' : 'Producto agregado con éxito.');
         await fetchProductos();
+        showSuccess(wasEditing ? 'Producto actualizado con éxito.' : 'Producto agregado con éxito.');
       } catch (error) {
         console.error(error);
         setProductStatus(buildConnectionErrorMessage('crear el producto', error), { error: true });
+        showError(buildConnectionErrorMessage('crear el producto', error));
+      } finally {
+        setLoadingState(productForm, false);
       }
     });
 
@@ -15268,12 +15671,14 @@
       if (!documentValue || !supplierValue || !dateValue || !items.length) {
         purchaseStatus.className = 'status error';
         purchaseStatus.textContent = 'Completa todos los campos de la compra correctamente.';
+        showError('Completa todos los campos de la compra correctamente.');
         return;
       }
 
       if (items.some(item => item.cantidad <= 0 || Number.isNaN(item.costo))) {
         purchaseStatus.className = 'status error';
         purchaseStatus.textContent = 'Cada línea debe tener cantidad y precio válidos.';
+        showError('Cada línea debe tener cantidad y precio válidos.');
         return;
       }
 
@@ -15285,6 +15690,7 @@
       if (missingLinkedItem) {
         purchaseStatus.className = 'status error';
         purchaseStatus.textContent = 'Selecciona el sabor o topping correspondiente en cada compra de materia prima vinculada.';
+        showError('Selecciona el sabor o topping correspondiente en cada compra de materia prima vinculada.');
         return;
       }
 
@@ -15299,27 +15705,35 @@
         const cashOutValue = Number(cashOutInput.value || 0);
         const cashReferenceValue = cashReferenceInput.value.trim();
 
+        if (!setLoadingState(purchaseForm, true, { label: 'Registrando...' })) {
+          return;
+        }
+
         if (!paymentMethodValue) {
           purchaseStatus.className = 'status error';
           purchaseStatus.textContent = 'El método de pago es obligatorio.';
+          showError('El método de pago es obligatorio.');
           return;
         }
 
         if (paymentTypeValue === 'contado' && (Number.isNaN(cashOutValue) || cashOutValue <= 0)) {
           purchaseStatus.className = 'status error';
           purchaseStatus.textContent = 'En contado, el monto de salida debe ser mayor que cero.';
+          showError('En contado, el monto de salida debe ser mayor que cero.');
           return;
         }
 
         if (paymentTypeValue === 'contado' && requiresPaymentReference(paymentMethodValue) && !cashReferenceValue) {
           purchaseStatus.className = 'status error';
           purchaseStatus.textContent = 'La referencia es obligatoria para tarjeta o transferencia.';
+          showError('La referencia es obligatoria para tarjeta o transferencia.');
           return;
         }
 
         if (paymentTypeValue === 'credito' && !dueDateValue) {
           purchaseStatus.className = 'status error';
           purchaseStatus.textContent = 'La fecha de vencimiento es obligatoria para compras a crédito.';
+          showError('La fecha de vencimiento es obligatoria para compras a crédito.');
           return;
         }
 
@@ -15344,6 +15758,7 @@
         if (!response.ok) throw new Error(result.error || 'No se pudo registrar la compra.');
 
         purchaseStatus.textContent = `Compra registrada: ${items.length} productos.`;
+  showSuccess(`Compra registrada: ${items.length} productos.`);
         purchaseForm.reset();
         purchaseLines.innerHTML = '';
         addPurchaseLine();
@@ -15360,7 +15775,10 @@
       } catch (error) {
         purchaseStatus.className = 'status error';
         purchaseStatus.textContent = error.message;
+        showError(error.message);
         console.error(error);
+      } finally {
+        setLoadingState(purchaseForm, false);
       }
     });
 
@@ -15484,12 +15902,14 @@
       if (!documentValue || !customerValue || !dateValue || !items.length) {
         saleStatus.className = 'status error';
         saleStatus.textContent = 'Completa todos los campos de la venta correctamente.';
+        showError('Completa todos los campos de la venta correctamente.');
         return;
       }
 
       if (items.some(item => item.cantidad <= 0 || Number.isNaN(item.precio))) {
         saleStatus.className = 'status error';
         saleStatus.textContent = 'Cada línea debe tener cantidad y precio válidos.';
+        showError('Cada línea debe tener cantidad y precio válidos.');
         return;
       }
 
@@ -15497,6 +15917,7 @@
       if (invalidAddons) {
         saleStatus.className = 'status error';
         saleStatus.textContent = 'Revisa los extras y toppings: cada fila debe tener nombre, cantidad y precio válidos.';
+        showError('Revisa los extras y toppings: cada fila debe tener nombre, cantidad y precio válidos.');
         return;
       }
 
@@ -15516,12 +15937,14 @@
       if (missingFlavors) {
         saleStatus.className = 'status error';
         saleStatus.textContent = 'Las líneas de pelotitas deben llevar al menos un sabor seleccionado.';
+        showError('Las líneas de pelotitas deben llevar al menos un sabor seleccionado.');
         return;
       }
 
       if (invalidFlavorDistribution) {
         saleStatus.className = 'status error';
         saleStatus.textContent = 'Cada línea debe distribuir exactamente las pelotas que lleva el producto entre los sabores elegidos.';
+        showError('Cada línea debe distribuir exactamente las pelotas que lleva el producto entre los sabores elegidos.');
         return;
       }
 
@@ -15536,27 +15959,35 @@
         const cashChangeValue = Math.max(cashReceivedValue - totalAmount, 0);
         const cashReferenceValue = saleCashReferenceInput.value.trim();
 
+        if (!setLoadingState(saleForm, true, { label: 'Registrando...' })) {
+          return;
+        }
+
         if (!paymentMethodValue) {
           saleStatus.className = 'status error';
           saleStatus.textContent = 'El método de pago es obligatorio.';
+          showError('El método de pago es obligatorio.');
           return;
         }
 
         if (paymentTypeValue === 'contado' && (Number.isNaN(cashReceivedValue) || cashReceivedValue < totalAmount)) {
           saleStatus.className = 'status error';
           saleStatus.textContent = 'En contado, el monto recibido debe cubrir el total de la factura.';
+          showError('En contado, el monto recibido debe cubrir el total de la factura.');
           return;
         }
 
         if (paymentTypeValue === 'contado' && requiresPaymentReference(paymentMethodValue) && !cashReferenceValue) {
           saleStatus.className = 'status error';
           saleStatus.textContent = 'La referencia es obligatoria para tarjeta o transferencia.';
+          showError('La referencia es obligatoria para tarjeta o transferencia.');
           return;
         }
 
         if (paymentTypeValue === 'credito' && !dueDateValue) {
           saleStatus.className = 'status error';
           saleStatus.textContent = 'La fecha de vencimiento es obligatoria para ventas a crédito.';
+          showError('La fecha de vencimiento es obligatoria para ventas a crédito.');
           return;
         }
 
@@ -15580,6 +16011,7 @@
         if (!response.ok) throw new Error(result.error || 'No se pudo registrar la venta.');
 
         saleStatus.textContent = `Venta registrada: ${items.length} productos.`;
+  showSuccess(`Venta registrada: ${items.length} productos.`);
         setLastRegisteredSaleForPrint(result.venta || null);
         saleForm.reset();
         saleLines.innerHTML = '';
@@ -15599,7 +16031,10 @@
       } catch (error) {
         saleStatus.className = 'status error';
         saleStatus.textContent = error.message;
+        showError(error.message);
         console.error(error);
+      } finally {
+        setLoadingState(saleForm, false);
       }
     });
 
@@ -15735,6 +16170,9 @@
     inventoryInitialForm.addEventListener('submit', async event => {
       event.preventDefault();
       setInventoryInitialStatus('Guardando inventario inicial...');
+      if (!setLoadingState(inventoryInitialForm, true, { label: 'Guardando...' })) {
+        return;
+      }
       try {
         const response = await fetch(buildApiUrl('/inventario/inicial'), {
           method: 'POST',
@@ -15753,14 +16191,21 @@
         await fetchProductos();
         resetInventoryMovementForms();
         setInventoryInitialStatus('Inventario inicial registrado correctamente.');
+        showSuccess('Inventario inicial registrado correctamente.');
       } catch (error) {
         console.error(error);
         setInventoryInitialStatus(error.message, { error: true });
+        showError(error.message);
+      } finally {
+        setLoadingState(inventoryInitialForm, false);
       }
     });
     inventoryAdjustmentForm.addEventListener('submit', async event => {
       event.preventDefault();
       setInventoryAdjustmentStatus('Guardando ajuste de inventario...');
+      if (!setLoadingState(inventoryAdjustmentForm, true, { label: 'Guardando...' })) {
+        return;
+      }
       try {
         const response = await fetch(buildApiUrl('/inventario/ajustes'), {
           method: 'POST',
@@ -15780,9 +16225,13 @@
         await fetchProductos();
         resetInventoryMovementForms();
         setInventoryAdjustmentStatus('Ajuste de inventario registrado correctamente.');
+        showSuccess('Ajuste de inventario registrado correctamente.');
       } catch (error) {
         console.error(error);
         setInventoryAdjustmentStatus(error.message, { error: true });
+        showError(error.message);
+      } finally {
+        setLoadingState(inventoryAdjustmentForm, false);
       }
     });
     receivablesFilterDocumentInput.addEventListener('input', renderSaleReceivables);
@@ -15871,17 +16320,22 @@
       if (!payload.fecha || !payload.categoriaId || !payload.descripcion || Number.isNaN(payload.monto) || payload.monto <= 0) {
         paymentStatus.className = 'status error';
         paymentStatus.textContent = 'Completa correctamente la fecha, clasificación, descripción y monto del pago.';
+        showError('Completa correctamente la fecha, clasificación, descripción y monto del pago.');
         return;
       }
 
       if (payload.paymentMethod === 'transferencia' && !payload.referencia) {
         paymentStatus.className = 'status error';
         paymentStatus.textContent = 'La referencia es obligatoria para pagos por transferencia.';
+        showError('La referencia es obligatoria para pagos por transferencia.');
         return;
       }
 
       try {
         const isEditingPayment = Boolean(editingPaymentId);
+        if (!setLoadingState(paymentForm, true, { label: isEditingPayment ? 'Guardando...' : 'Registrando...' })) {
+          return;
+        }
         paymentStatus.className = 'status';
         paymentStatus.textContent = isEditingPayment ? 'Actualizando pago...' : 'Registrando pago...';
         const response = await fetch(buildApiUrl(isEditingPayment ? `/pagos/${encodeURIComponent(editingPaymentId)}` : '/pagos'), {
@@ -15897,11 +16351,13 @@
         resetPaymentFormEditing();
         setLastRegisteredPaymentForPrint(result.payment || null);
         await fetchPayments();
-        paymentStatus.textContent = result.message || (isEditingPayment
+        const successMessage = result.message || (isEditingPayment
           ? 'Pago actualizado correctamente.'
           : payload.paymentMethod === 'tarjeta-credito'
             ? 'Pago con tarjeta registrado como pendiente de reembolso.'
             : 'Pago registrado correctamente.');
+        paymentStatus.textContent = successMessage;
+        showSuccess(successMessage);
         if (payload.paymentMethod === 'efectivo' && result.payment) {
           printPaymentReceipt(result.payment, { autoPrint: true });
         }
@@ -15909,6 +16365,9 @@
         console.error(error);
         paymentStatus.className = 'status error';
         paymentStatus.textContent = error.message;
+        showError(error.message);
+      } finally {
+        setLoadingState(paymentForm, false);
       }
     });
 
@@ -15969,11 +16428,15 @@
 
         if (!payload.fecha || !payload.tercero || !payload.concepto || Number.isNaN(payload.originalAmount) || payload.originalAmount <= 0) {
           setExternalDebtStatus('Completa fecha, tercero, concepto y un monto válido.', { error: true });
+          showError('Completa fecha, tercero, concepto y un monto válido.');
           return;
         }
 
         try {
           const isEditingExternalDebt = Boolean(editingExternalDebtId);
+          if (!setLoadingState(externalDebtForm, true, { label: isEditingExternalDebt ? 'Guardando...' : 'Guardando...' })) {
+            return;
+          }
           setExternalDebtStatus(isEditingExternalDebt ? 'Actualizando deuda externa...' : 'Guardando deuda externa...');
           const response = await fetch(buildApiUrl(isEditingExternalDebt ? `/deudas-externas/${encodeURIComponent(editingExternalDebtId)}` : '/deudas-externas'), {
             method: isEditingExternalDebt ? 'PATCH' : 'POST',
@@ -15986,9 +16449,13 @@
           resetExternalDebtFormEditing();
           await fetchExternalDebts();
           setExternalDebtStatus(isEditingExternalDebt ? 'Deuda externa actualizada correctamente.' : 'Deuda externa registrada correctamente.');
+          showSuccess(isEditingExternalDebt ? 'Deuda externa actualizada correctamente.' : 'Deuda externa registrada correctamente.');
         } catch (error) {
           console.error(error);
           setExternalDebtStatus(error.message, { error: true });
+          showError(error.message);
+        } finally {
+          setLoadingState(externalDebtForm, false);
         }
       });
     }
@@ -16009,6 +16476,7 @@
         event.preventDefault();
         if (!payingExternalDebtId) {
           setExternalDebtPaymentStatus('Selecciona una deuda externa válida.', { error: true });
+          showError('Selecciona una deuda externa válida.');
           return;
         }
         const payload = {
@@ -16021,10 +16489,14 @@
 
         if (!payload.account || !payload.date || Number.isNaN(payload.amount) || payload.amount <= 0) {
           setExternalDebtPaymentStatus('Completa cuenta, fecha y un monto válido para el abono.', { error: true });
+          showError('Completa cuenta, fecha y un monto válido para el abono.');
           return;
         }
 
         try {
+          if (!setLoadingState(externalDebtPaymentForm, true, { label: 'Registrando...' })) {
+            return;
+          }
           setExternalDebtPaymentStatus('Registrando abono...');
           const response = await fetch(buildApiUrl(`/deudas-externas/${encodeURIComponent(payingExternalDebtId)}/abonos`), {
             method: 'POST',
@@ -16039,13 +16511,18 @@
           const latestPayment = updatedDebt ? getLastRecordPayment(updatedDebt, getExternalDebtOriginalAmount(updatedDebt)) : null;
           await fetchExternalDebts();
           closeExternalDebtPaymentModalPanel();
-          setExternalDebtStatus(result.message || 'Abono registrado correctamente en la deuda externa.');
+          const successMessage = result.message || 'Abono registrado correctamente en la deuda externa.';
+          setExternalDebtStatus(successMessage);
+          showSuccess(successMessage);
           if (latestPayment) {
             printExternalDebtReceipt(updatedDebt, latestPayment, { autoPrint: true });
           }
         } catch (error) {
           console.error(error);
           setExternalDebtPaymentStatus(error.message, { error: true });
+          showError(error.message);
+        } finally {
+          setLoadingState(externalDebtPaymentForm, false);
         }
       });
     }
@@ -16061,10 +16538,14 @@
       if (!payload.nombre) {
         paymentCategoryStatus.className = 'status error';
         paymentCategoryStatus.textContent = 'El nombre de la clasificación es obligatorio.';
+        showError('El nombre de la clasificación es obligatorio.');
         return;
       }
 
       try {
+        if (!setLoadingState(paymentCategoryForm, true, { label: 'Guardando...' })) {
+          return;
+        }
         paymentCategoryStatus.className = 'status';
         paymentCategoryStatus.textContent = editingPaymentCategoryId ? 'Actualizando clasificación...' : 'Guardando clasificación...';
         const response = await fetch(buildApiUrl('/pagos-categorias'), {
@@ -16078,10 +16559,14 @@
         resetPaymentCategoryForm();
         await Promise.all([fetchPaymentCategories(), fetchPayments()]);
         paymentCategoryStatus.textContent = 'Clasificación guardada correctamente.';
+        showSuccess('Clasificación guardada correctamente.');
       } catch (error) {
         console.error(error);
         paymentCategoryStatus.className = 'status error';
         paymentCategoryStatus.textContent = error.message;
+        showError(error.message);
+      } finally {
+        setLoadingState(paymentCategoryForm, false);
       }
     });
 
@@ -16101,10 +16586,14 @@
       if (!paymentIds.length) {
         paymentReimbursementStatus.className = 'status error';
         paymentReimbursementStatus.textContent = 'Selecciona al menos un pago pendiente para registrar el reembolso.';
+        showError('Selecciona al menos un pago pendiente para registrar el reembolso.');
         return;
       }
 
       try {
+        if (!setLoadingState(paymentReimbursementForm, true, { label: 'Registrando...' })) {
+          return;
+        }
         paymentReimbursementStatus.className = 'status';
         paymentReimbursementStatus.textContent = 'Registrando transferencia...';
         const response = await fetch(buildApiUrl('/pagos/reembolsar-lote'), {
@@ -16126,10 +16615,14 @@
         paymentStatus.textContent = paymentIds.length === 1
           ? 'Reembolso por transferencia registrado correctamente.'
           : `Transferencia registrada correctamente para ${paymentIds.length} pagos.`;
+        showSuccess(paymentStatus.textContent);
       } catch (error) {
         console.error(error);
         paymentReimbursementStatus.className = 'status error';
         paymentReimbursementStatus.textContent = error.message;
+        showError(error.message);
+      } finally {
+        setLoadingState(paymentReimbursementForm, false);
       }
     });
 
@@ -16149,15 +16642,20 @@
         if (!payload.fecha || !payload.fromAccount || !payload.toAccount || Number.isNaN(payload.amount) || payload.amount <= 0 || !payload.description) {
           fundTransferStatus.className = 'status error';
           fundTransferStatus.textContent = 'Completa correctamente la fecha, cuentas, descripción y monto del traslado.';
+          showError('Completa correctamente la fecha, cuentas, descripción y monto del traslado.');
           return;
         }
         if (payload.fromAccount === payload.toAccount) {
           fundTransferStatus.className = 'status error';
           fundTransferStatus.textContent = 'El origen y el destino del traslado deben ser distintos.';
+          showError('El origen y el destino del traslado deben ser distintos.');
           return;
         }
 
         try {
+          if (!setLoadingState(fundTransferForm, true, { label: 'Registrando...' })) {
+            return;
+          }
           fundTransferStatus.className = 'status';
           fundTransferStatus.textContent = 'Registrando traslado...';
           const response = await fetch(buildApiUrl('/efectivo/traslados'), {
@@ -16172,10 +16670,14 @@
           applyDefaultDateValues();
           await fetchFundTransfers();
           fundTransferStatus.textContent = 'Traslado de fondos registrado correctamente.';
+          showSuccess('Traslado de fondos registrado correctamente.');
         } catch (error) {
           console.error(error);
           fundTransferStatus.className = 'status error';
           fundTransferStatus.textContent = error.message;
+          showError(error.message);
+        } finally {
+          setLoadingState(fundTransferForm, false);
         }
       });
     }
@@ -16191,10 +16693,14 @@
         if ([openingCashBalance, openingBankBalance, minimumCashReserve].some(value => Number.isNaN(value) || value < 0)) {
           fundSettingsStatus.className = 'status error';
           fundSettingsStatus.textContent = 'Los saldos iniciales y el fondo mínimo deben ser mayores o iguales a cero.';
+          showError('Los saldos iniciales y el fondo mínimo deben ser mayores o iguales a cero.');
           return;
         }
 
         try {
+          if (!setLoadingState(fundSettingsForm, true, { label: 'Guardando...' })) {
+            return;
+          }
           fundSettingsStatus.className = 'status';
           fundSettingsStatus.textContent = 'Guardando configuración...';
           const response = await fetch(buildApiUrl('/efectivo/configuracion'), {
@@ -16214,9 +16720,13 @@
           state.fundSettings = result.settings && typeof result.settings === 'object' ? result.settings : getDefaultFundSettings();
           renderFundsModule();
           fundSettingsStatus.textContent = result.message || 'Configuración guardada correctamente.';
+          showSuccess(fundSettingsStatus.textContent);
         } catch (error) {
           fundSettingsStatus.className = 'status error';
           fundSettingsStatus.textContent = error.message;
+          showError(error.message);
+        } finally {
+          setLoadingState(fundSettingsForm, false);
         }
       });
     }

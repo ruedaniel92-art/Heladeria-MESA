@@ -59,6 +59,8 @@ if (process.env.VERCEL === '1' && !process.env.APP_AUTH_SECRET) {
 }
 const AUTH_SECRET = process.env.APP_AUTH_SECRET
   || crypto.createHash("sha256").update(buildAuthSecretSeed()).digest("hex");
+const CREDIT_PAYMENT_METHODS = ["efectivo", "transferencia", "tarjeta"];
+const OUTGOING_PAYMENT_METHODS = ["efectivo", "transferencia", "tarjeta-credito"];
 const MODULE_PERMISSION_KEYS = ["dashboard", "ingreso", "compras", "ventas", "pagos", "efectivo", "sabores", "inventario", "seguridad"];
 const DEFAULT_COLLECTION_CACHE_MS = 2 * 60 * 1000;
 const COLLECTION_CACHE_MS = {
@@ -1527,6 +1529,11 @@ app.post("/auth/login", asyncHandler(async (req, res) => {
   await hydrateStore([COLLECTIONS.users]);
   const username = normalizeUsername(req.body?.username);
   const password = String(req.body?.password || "");
+
+  if (!username || !password) {
+    return res.status(400).json({ error: "Datos incompletos" });
+  }
+
   const user = users.find(item => String(item.username || "") === username && item.active !== false);
 
   if (!user || !verifyPassword(password, user.passwordHash)) {
@@ -1597,6 +1604,9 @@ app.post("/auth/users", requireAdmin, asyncHandler(async (req, res) => {
 app.patch("/auth/users/:id", requireAdmin, asyncHandler(async (req, res) => {
   await hydrateStore([COLLECTIONS.users]);
   const { id } = req.params;
+  if (!id || typeof id !== "string" || !id.trim()) {
+    return res.status(400).json({ error: "ID inválido" });
+  }
   const user = users.find(item => String(item.id) === String(id));
   if (!user) {
     return res.status(404).json({ error: "Usuario no encontrado." });
@@ -1615,6 +1625,12 @@ app.patch("/auth/users/:id", requireAdmin, asyncHandler(async (req, res) => {
 
   if (password && password.length < 6) {
     return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres." });
+  }
+
+  const activeAdmins = users.filter(item => item.active !== false && String(item.role || "user") === "admin");
+  const isLastActiveAdmin = user.active !== false && String(user.role || "user") === "admin" && activeAdmins.length === 1;
+  if (isLastActiveAdmin && (role !== "admin" || active === false)) {
+    return res.status(409).json({ error: "No puedes eliminar el último administrador" });
   }
 
   user.nombre = nombre;
@@ -2958,6 +2974,9 @@ app.get("/compras", asyncHandler(async (req, res) => {
 app.post("/compras/:id/pagar", asyncHandler(async (req, res) => {
   await hydrateStore();
   const { id } = req.params;
+  if (!id || typeof id !== "string" || !id.trim()) {
+    return res.status(400).json({ error: "ID inválido" });
+  }
   const compra = compras.find(item => String(item.id) === String(id));
 
   if (!compra) {
@@ -2979,6 +2998,9 @@ app.post("/compras/:id/pagar", asyncHandler(async (req, res) => {
 
   if (!paymentMethod) {
     return res.status(400).json({ error: "El método de pago es obligatorio." });
+  }
+  if (!CREDIT_PAYMENT_METHODS.includes(paymentMethod)) {
+    return res.status(400).json({ error: "Método de pago inválido" });
   }
 
   if (Number.isNaN(paidAt.getTime())) {
@@ -3173,8 +3195,8 @@ app.post("/pagos", asyncHandler(async (req, res) => {
   if (Number.isNaN(paymentDate.getTime())) {
     return res.status(400).json({ error: "La fecha del pago no es válida." });
   }
-  if (!["efectivo", "transferencia", "tarjeta-credito"].includes(paymentMethod)) {
-    return res.status(400).json({ error: "El método del pago debe ser efectivo, transferencia o tarjeta de crédito." });
+  if (!OUTGOING_PAYMENT_METHODS.includes(paymentMethod)) {
+    return res.status(400).json({ error: "Método de pago inválido" });
   }
   if (paymentMethod === 'transferencia' && !referencia) {
     return res.status(400).json({ error: "La referencia es obligatoria para pagos por transferencia." });
@@ -3224,6 +3246,9 @@ app.post("/pagos", asyncHandler(async (req, res) => {
 app.patch("/pagos/:id", asyncHandler(async (req, res) => {
   await hydrateStore([COLLECTIONS.pagos, COLLECTIONS.paymentCategories, COLLECTIONS.compras, COLLECTIONS.externalDebts]);
   const { id } = req.params;
+  if (!id || typeof id !== "string" || !id.trim()) {
+    return res.status(400).json({ error: "ID inválido" });
+  }
   const payment = pagos.find(item => String(item.id) === String(id));
   if (!payment) {
     return res.status(404).json({ error: "Pago no encontrado." });
@@ -3251,8 +3276,8 @@ app.patch("/pagos/:id", asyncHandler(async (req, res) => {
   if (Number.isNaN(paymentDate.getTime())) {
     return res.status(400).json({ error: "La fecha del pago no es válida." });
   }
-  if (!["efectivo", "transferencia", "tarjeta-credito"].includes(paymentMethod)) {
-    return res.status(400).json({ error: "El método del pago debe ser efectivo, transferencia o tarjeta de crédito." });
+  if (!OUTGOING_PAYMENT_METHODS.includes(paymentMethod)) {
+    return res.status(400).json({ error: "Método de pago inválido" });
   }
   if (paymentMethod === 'transferencia' && !referencia) {
     return res.status(400).json({ error: "La referencia es obligatoria para pagos por transferencia." });
@@ -3588,6 +3613,9 @@ app.post("/inventario/ajustes", asyncHandler(async (req, res) => {
 app.post("/ventas/:id/pagar", asyncHandler(async (req, res) => {
   await hydrateStore();
   const { id } = req.params;
+  if (!id || typeof id !== "string" || !id.trim()) {
+    return res.status(400).json({ error: "ID inválido" });
+  }
   const venta = ventas.find(item => String(item.id) === String(id));
 
   if (!venta) {
@@ -3609,6 +3637,9 @@ app.post("/ventas/:id/pagar", asyncHandler(async (req, res) => {
 
   if (!paymentMethod) {
     return res.status(400).json({ error: "El método de pago es obligatorio." });
+  }
+  if (!CREDIT_PAYMENT_METHODS.includes(paymentMethod)) {
+    return res.status(400).json({ error: "Método de pago inválido" });
   }
 
   if (Number.isNaN(paidAt.getTime())) {
