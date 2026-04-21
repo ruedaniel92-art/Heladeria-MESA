@@ -54,6 +54,9 @@ function buildAuthSecretSeed() {
 
 const AUTH_TOKEN_DURATION_MS = 10 * 60 * 1000;
 const AUTH_PASSWORD_ITERATIONS = 210000;
+if (process.env.VERCEL === '1' && !process.env.APP_AUTH_SECRET) {
+  throw new Error('APP_AUTH_SECRET es obligatorio en producción');
+}
 const AUTH_SECRET = process.env.APP_AUTH_SECRET
   || crypto.createHash("sha256").update(buildAuthSecretSeed()).digest("hex");
 const MODULE_PERMISSION_KEYS = ["dashboard", "ingreso", "compras", "ventas", "pagos", "efectivo", "sabores", "inventario", "seguridad"];
@@ -456,14 +459,24 @@ async function commitBatch(operations) {
 function asyncHandler(handler) {
   return (req, res, next) => {
     Promise.resolve(handler(req, res, next)).catch(error => {
-      console.error(error);
+      const errorDetails = String(error?.details || error?.message || '').toLowerCase();
+      const isQuotaExceeded = Number(error?.code) === 8 || errorDetails.includes('quota exceeded') || errorDetails.includes('resource_exhausted');
+      const status = Number(error?.status) || (isQuotaExceeded ? 503 : 500);
+      const publicMessage = error?.publicMessage || (isQuotaExceeded
+        ? 'Se alcanzó la cuota de Firestore. Debes esperar al reinicio de cuota o cambiar la configuración del proyecto.'
+        : 'Error interno del servidor');
+
+      console.error('ERROR:', {
+        path: req.originalUrl,
+        method: req.method,
+        user: req.authUser?.id || req.user?.id || null,
+        message: error?.message || 'Unexpected error'
+      });
+
       if (!res.headersSent) {
-        const errorDetails = String(error?.details || error?.message || '').toLowerCase();
-        const isQuotaExceeded = Number(error?.code) === 8 || errorDetails.includes('quota exceeded') || errorDetails.includes('resource_exhausted');
-        if (isQuotaExceeded) {
-          return res.status(503).json({ error: "Se alcanzó la cuota de Firestore. Debes esperar al reinicio de cuota o cambiar la configuración del proyecto." });
-        }
-        res.status(500).json({ error: "Ocurrió un error al comunicarse con Firestore." });
+        return res.status(status).json({
+          error: publicMessage
+        });
       }
     });
   };
