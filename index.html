@@ -1931,6 +1931,94 @@
       color: #b91c1c;
     }
 
+    .dashboard-income-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+
+    .dashboard-income-card {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 18px;
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(250, 251, 255, 0.98), rgba(241, 245, 255, 0.94));
+      border: 1px solid rgba(91, 108, 255, 0.12);
+    }
+
+    .dashboard-income-card.is-loss {
+      background: linear-gradient(180deg, rgba(255, 245, 245, 0.98), rgba(254, 226, 226, 0.96));
+      border-color: rgba(220, 38, 38, 0.18);
+    }
+
+    .dashboard-income-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .dashboard-income-title {
+      font-size: 1rem;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .dashboard-income-meta {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .dashboard-income-net {
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--primary-dark);
+      text-align: right;
+    }
+
+    .dashboard-income-card.is-loss .dashboard-income-net {
+      color: #b91c1c;
+    }
+
+    .dashboard-income-rows {
+      display: grid;
+      gap: 10px;
+    }
+
+    .dashboard-income-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--text);
+      font-size: 0.92rem;
+    }
+
+    .dashboard-income-row strong {
+      font-size: 0.95rem;
+    }
+
+    .dashboard-income-row.is-profit strong,
+    .dashboard-income-row.is-profit span {
+      color: #047857;
+    }
+
+    .dashboard-income-row.is-loss strong,
+    .dashboard-income-row.is-loss span {
+      color: #b91c1c;
+    }
+
+    .dashboard-income-footnote {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+
     .history-empty {
       margin-top: 12px;
       color: var(--muted);
@@ -3846,6 +3934,7 @@
               <div class="purchase-tabs">
                 <button type="button" class="dashboard-tab purchase-tab active" data-dashboard-tab="overview">Resumen</button>
                 <button type="button" class="dashboard-tab purchase-tab" data-dashboard-tab="cashflow">Flujo de efectivo</button>
+                <button type="button" class="dashboard-tab purchase-tab" data-dashboard-tab="income-statement">Estado de Resultados</button>
               </div>
 
               <div id="dashboard-overview-panel" class="purchase-subpanel active">
@@ -3998,6 +4087,37 @@
                         </div>
                       </div>
                       <div id="dashboard-cash-flow-grid" class="dashboard-flow-columns"></div>
+                    </article>
+                  </section>
+                </div>
+              </div>
+
+              <div id="dashboard-income-statement-panel" class="purchase-subpanel">
+                <div class="dashboard-shell">
+                  <section class="dashboard-hero">
+                    <div>
+                      <h3>Estado de Resultados</h3>
+                      <p id="dashboard-income-statement-summary">Ventas, costos desde inventoryMovements y gastos del sistema por mes, sin recalcular PEPS.</p>
+                    </div>
+                    <div class="dashboard-stamp">Mes seleccionado y 3 anteriores</div>
+                  </section>
+
+                  <section class="dashboard-sheet-section">
+                    <article class="dashboard-card dashboard-feature-card">
+                      <div class="dashboard-section-header">
+                        <h4>Corte mensual</h4>
+                        <span>Editable</span>
+                      </div>
+                      <div class="form-grid" style="margin-bottom: 18px;">
+                        <div class="field">
+                          <label for="dashboard-income-statement-month">Mes base</label>
+                          <input type="month" id="dashboard-income-statement-month" />
+                        </div>
+                        <div class="field" style="align-self: end;">
+                          <button type="button" id="dashboard-income-statement-clear" class="secondary-btn">Mes actual</button>
+                        </div>
+                      </div>
+                      <div id="dashboard-income-statement-grid" class="dashboard-income-grid"></div>
                     </article>
                   </section>
                 </div>
@@ -4895,6 +5015,14 @@
                       </select>
                     </div>
                     <div class="field">
+                      <label for="external-debt-category">Clasificación</label>
+                      <select id="external-debt-category" required>
+                        <option value="gasto">Gasto</option>
+                        <option value="inversion">Inversión</option>
+                        <option value="otro">Otro</option>
+                      </select>
+                    </div>
+                    <div class="field">
                       <label for="external-debt-date">Fecha</label>
                       <input type="date" id="external-debt-date" required />
                     </div>
@@ -5631,6 +5759,7 @@
       if (externalDebtPaymentDateInput) externalDebtPaymentDateInput.value = today;
       if (bucketOpenDateInput) bucketOpenDateInput.value = today;
       if (dashboardCashflowFilterMonthInput) dashboardCashflowFilterMonthInput.value = getCurrentMonthInputValue();
+      if (dashboardIncomeStatementMonthInput) dashboardIncomeStatementMonthInput.value = getCurrentMonthInputValue();
       if (dashboardCashflowDateStartInput) dashboardCashflowDateStartInput.value = today;
       if (dashboardCashflowDateEndInput) dashboardCashflowDateEndInput.value = today;
     }
@@ -6034,6 +6163,7 @@
     const fundBankRecords = document.getElementById('fund-bank-records');
     const externalDebtForm = document.getElementById('external-debt-form');
     const externalDebtTypeInput = document.getElementById('external-debt-type');
+    const externalDebtCategoryInput = document.getElementById('external-debt-category');
     const externalDebtDateInput = document.getElementById('external-debt-date');
     const externalDebtDueDateInput = document.getElementById('external-debt-due-date');
     const externalDebtAmountInput = document.getElementById('external-debt-amount');
@@ -6064,8 +6194,10 @@
     const dashboardTabs = document.querySelectorAll('.dashboard-tab');
     const dashboardOverviewPanel = document.getElementById('dashboard-overview-panel');
     const dashboardCashflowPanel = document.getElementById('dashboard-cashflow-panel');
+    const dashboardIncomeStatementPanel = document.getElementById('dashboard-income-statement-panel');
     const dashboardSummaryText = document.getElementById('dashboard-summary-text');
     const dashboardCashFlowSummary = document.getElementById('dashboard-cash-flow-summary');
+    const dashboardIncomeStatementSummary = document.getElementById('dashboard-income-statement-summary');
     const dashboardCashflowFilterModeInput = document.getElementById('dashboard-cashflow-filter-mode');
     const dashboardCashflowMonthField = document.getElementById('dashboard-cashflow-month-field');
     const dashboardCashflowFilterMonthInput = document.getElementById('dashboard-cashflow-filter-month');
@@ -6074,6 +6206,8 @@
     const dashboardCashflowDateStartInput = document.getElementById('dashboard-cashflow-date-start');
     const dashboardCashflowDateEndInput = document.getElementById('dashboard-cashflow-date-end');
     const dashboardCashflowClearFiltersButton = document.getElementById('dashboard-cashflow-clear-filters');
+    const dashboardIncomeStatementMonthInput = document.getElementById('dashboard-income-statement-month');
+    const dashboardIncomeStatementClearButton = document.getElementById('dashboard-income-statement-clear');
     const dashboardLastUpdated = document.getElementById('dashboard-last-updated');
     const dashboardSalesToday = document.getElementById('dashboard-sales-today');
     const dashboardSalesTodayMeta = document.getElementById('dashboard-sales-today-meta');
@@ -6096,6 +6230,7 @@
     const dashboardSalesComparison = document.getElementById('dashboard-sales-comparison');
     const dashboardTopProducts = document.getElementById('dashboard-top-products');
     const dashboardCashFlowGrid = document.getElementById('dashboard-cash-flow-grid');
+    const dashboardIncomeStatementGrid = document.getElementById('dashboard-income-statement-grid');
     const dashboardActiveBuckets = document.getElementById('dashboard-active-buckets');
     const dashboardActiveToppings = document.getElementById('dashboard-active-toppings');
     const dashboardActiveSauces = document.getElementById('dashboard-active-sauces');
@@ -6244,6 +6379,9 @@
     let editingPaymentCategoryId = null;
     let editingPaymentId = null;
     let editingExternalDebtId = null;
+    let editingPurchasePaymentEntryId = null;
+    let editingSalePaymentEntryId = null;
+    let editingExternalDebtPaymentEntryId = null;
     let payingPurchaseId = null;
     let payingSaleId = null;
     let payingExternalDebtId = null;
@@ -7188,6 +7326,7 @@
     }
 
     function openPurchasePayableModalPanel(purchaseId) {
+      resetPurchasePaymentEntryEditing();
       payingPurchaseId = purchaseId;
       const purchase = state.purchases.find(item => String(item.id) === String(purchaseId));
       const totalAmount = getPurchaseTotalAmount(purchase);
@@ -7205,8 +7344,12 @@
       purchasePayableAmountInput.value = balanceDue > 0 ? balanceDue.toFixed(2) : totalAmount.toFixed(2);
       updatePurchasePayableReferenceVisibility();
       const actionLabel = purchase ? getPurchasePaymentActionLabel(purchase) : 'Aplicar pago';
-      const isEditingPayment = actionLabel === 'Editar pago';
-      const isViewOnly = isCreditPurchase(purchase) && balanceDue <= 0.0001;
+      const isEditingPayment = actionLabel === 'Editar pago' || actionLabel === 'Editar abono';
+      const isViewOnly = isCreditPurchase(purchase) && balanceDue <= 0.0001 && actionLabel !== 'Editar abono';
+      const latestPayment = getLastRecordPayment(purchase, totalAmount);
+      if (actionLabel === 'Editar abono' && paymentHistory.length === 1 && latestPayment) {
+        startEditPurchasePaymentEntry(latestPayment);
+      }
       purchasePayableModalTitle.textContent = actionLabel;
       submitPurchasePayableButton.textContent = isEditingPayment ? 'Guardar cambios' : 'Registrar abono';
       submitPurchasePayableButton.style.display = isViewOnly ? 'none' : 'inline-flex';
@@ -7216,7 +7359,32 @@
       purchasePayableSummary.textContent = purchase
         ? `Documento ${purchase.documento || purchase.document || '-'} · total ${formatCurrency(totalAmount)} · abonado ${formatCurrency(paidAmount)} · saldo ${formatCurrency(balanceDue)}.`
         : 'Aquí verás el saldo pendiente y el historial de abonos de esta compra.';
-      renderAccountStatementTable(purchasePayableHistory, purchase, totalAmount, 'Aún no hay abonos registrados para esta compra.');
+      renderAccountStatementTable(purchasePayableHistory, purchase, totalAmount, 'Aún no hay abonos registrados para esta compra.', {
+        renderActions: entry => `
+          <div class="purchase-row-actions">
+            <button type="button" class="secondary-btn action-icon-btn" data-purchase-payment-entry-edit="${escapeHtml(entry.id)}" title="Editar abono">✎</button>
+            <button type="button" class="secondary-btn action-icon-btn" data-purchase-payment-entry-print="${escapeHtml(entry.id)}" title="Imprimir recibo">🧾</button>
+          </div>
+        `
+      });
+      purchasePayableHistory.querySelectorAll('[data-purchase-payment-entry-edit]').forEach(button => {
+        button.addEventListener('click', () => {
+          const paymentEntry = paymentHistory.find(entry => String(entry.id) === String(button.dataset.purchasePaymentEntryEdit));
+          if (!paymentEntry) {
+            return;
+          }
+          startEditPurchasePaymentEntry(paymentEntry);
+        });
+      });
+      purchasePayableHistory.querySelectorAll('[data-purchase-payment-entry-print]').forEach(button => {
+        button.addEventListener('click', () => {
+          const paymentEntry = paymentHistory.find(entry => String(entry.id) === String(button.dataset.purchasePaymentEntryPrint));
+          if (!paymentEntry) {
+            return;
+          }
+          printPurchasePayableReceipt(purchase, paymentEntry);
+        });
+      });
       setPurchasePayableStatus(isViewOnly
         ? 'Esta cuenta ya está saldada. Aquí puedes consultar su estado de cuenta.'
         : isEditingPayment
@@ -7228,6 +7396,7 @@
     }
 
     function closePurchasePayableModalPanel() {
+      resetPurchasePaymentEntryEditing();
       payingPurchaseId = null;
       purchasePayableModalTitle.textContent = 'Aplicar pago';
       submitPurchasePayableButton.textContent = 'Aplicar pago';
@@ -7258,6 +7427,7 @@
     }
 
     function openSalePayableModalPanel(saleId) {
+      resetSalePaymentEntryEditing();
       payingSaleId = saleId;
       const sale = state.sales.find(item => String(item.id) === String(saleId));
       const totalAmount = getSaleTotalAmount(sale);
@@ -7272,10 +7442,15 @@
           : getTodayInputValue();
       salePayableReferenceInput.value = sale?.paymentReference || '';
       salePayableAmountInput.value = balanceDue > 0 ? balanceDue.toFixed(2) : totalAmount.toFixed(2);
+      const paymentHistory = getNormalizedRecordPaymentHistory(sale, totalAmount);
       updateSalePayableReferenceVisibility();
       const actionLabel = sale ? getSalePaymentActionLabel(sale) : 'Aplicar pago';
-      const isEditingPayment = actionLabel === 'Editar pago';
-      const isViewOnly = isCreditSale(sale) && balanceDue <= 0.0001;
+      const isEditingPayment = actionLabel === 'Editar pago' || actionLabel === 'Editar abono';
+      const isViewOnly = isCreditSale(sale) && balanceDue <= 0.0001 && actionLabel !== 'Editar abono';
+      const latestPayment = getLastRecordPayment(sale, totalAmount);
+      if (actionLabel === 'Editar abono' && paymentHistory.length === 1 && latestPayment) {
+        startEditSalePaymentEntry(latestPayment);
+      }
       salePayableModalTitle.textContent = actionLabel;
       submitSalePayableButton.textContent = isEditingPayment ? 'Guardar cambios' : 'Registrar abono';
       submitSalePayableButton.style.display = isViewOnly ? 'none' : 'inline-flex';
@@ -7285,7 +7460,32 @@
       salePayableSummary.textContent = sale
         ? `Factura ${sale.documento || '-'} · total ${formatCurrency(totalAmount)} · cobrado ${formatCurrency(paidAmount)} · saldo ${formatCurrency(balanceDue)}.`
         : 'Aquí verás el saldo pendiente y el historial de cobros de esta venta.';
-      renderAccountStatementTable(salePayableHistory, sale, totalAmount, 'Aún no hay cobros registrados para esta venta.');
+      renderAccountStatementTable(salePayableHistory, sale, totalAmount, 'Aún no hay cobros registrados para esta venta.', {
+        renderActions: entry => `
+          <div class="purchase-row-actions">
+            <button type="button" class="secondary-btn action-icon-btn" data-sale-payment-entry-edit="${escapeHtml(entry.id)}" title="Editar abono">✎</button>
+            <button type="button" class="secondary-btn action-icon-btn" data-sale-payment-entry-print="${escapeHtml(entry.id)}" title="Imprimir recibo">🧾</button>
+          </div>
+        `
+      });
+      salePayableHistory.querySelectorAll('[data-sale-payment-entry-edit]').forEach(button => {
+        button.addEventListener('click', () => {
+          const paymentEntry = paymentHistory.find(entry => String(entry.id) === String(button.dataset.salePaymentEntryEdit));
+          if (!paymentEntry) {
+            return;
+          }
+          startEditSalePaymentEntry(paymentEntry);
+        });
+      });
+      salePayableHistory.querySelectorAll('[data-sale-payment-entry-print]').forEach(button => {
+        button.addEventListener('click', () => {
+          const paymentEntry = paymentHistory.find(entry => String(entry.id) === String(button.dataset.salePaymentEntryPrint));
+          if (!paymentEntry) {
+            return;
+          }
+          printSalePayableReceipt(sale, paymentEntry);
+        });
+      });
       setSalePayableStatus(isViewOnly
         ? 'Esta cuenta ya está saldada. Aquí puedes consultar su estado de cuenta.'
         : isEditingPayment
@@ -7297,6 +7497,7 @@
     }
 
     function closeSalePayableModalPanel() {
+      resetSalePaymentEntryEditing();
       payingSaleId = null;
       salePayableModalTitle.textContent = 'Aplicar pago';
       submitSalePayableButton.textContent = 'Aplicar pago';
@@ -7789,14 +7990,14 @@
       const flavorProducts = state.productos.filter(producto => getProductInventoryMode(producto) === 'helado-sabores');
       const catalog = [
         ...getMateriaPrimaProducts().map(producto => ({
-          label: `${producto.nombre} · materia prima`,
+          label: `${producto.nombre} · materia prima${getProductCurrentStockLabel(producto)}`,
           value: String(producto.nombre || '').trim(),
           price: Number(producto.precio || 0),
           kind: 'materia-prima',
           id: producto.id
         })),
         ...flavorProducts.map(producto => ({
-          label: `${producto.nombre} · helado por sabores`,
+          label: `${producto.nombre} · helado por sabores${getProductCurrentStockLabel(producto)}`,
           value: String(producto.nombre || '').trim(),
           price: Number(producto.precio || 0),
           kind: 'flavor-product',
@@ -7849,6 +8050,10 @@
       const normalizedName = String(name || '').trim().toLowerCase();
       if (!normalizedName) return null;
       return getSaleExtraCatalogItems().find(item => item.value.toLowerCase() === normalizedName) || null;
+    }
+
+    function getProductCurrentStockLabel(producto) {
+      return ` · stock actual ${formatInventoryQuantity(producto?.stock || 0)}`;
     }
 
     function productUsesFlavors(producto) {
@@ -8770,7 +8975,7 @@
         return '<option value="">No hay productos</option>';
       }
       return sellableProducts.map(producto => `
-        <option value="${escapeHtml(producto.id)}" data-name="${escapeHtml(producto.nombre)}" ${String(producto.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(producto.nombre)} — ${escapeHtml(renderInventoryModeLabel(producto))}${productUsesFlavors(producto) ? ` · ${Number(producto.pelotasPorUnidad || 0)} porciones` : ''}</option>
+        <option value="${escapeHtml(producto.id)}" data-name="${escapeHtml(producto.nombre)}" ${String(producto.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(producto.nombre)} — ${escapeHtml(renderInventoryModeLabel(producto))}${productUsesFlavors(producto) ? ` · ${Number(producto.pelotasPorUnidad || 0)} porciones` : ''}${escapeHtml(getProductCurrentStockLabel(producto))}</option>
       `).join('');
     }
 
@@ -8781,11 +8986,11 @@
       const purchasableProducts = getPurchasableProducts();
       if (!purchasableProducts.length) {
         return state.productos.map(producto => `
-        <option value="${escapeHtml(producto.id)}" data-name="${escapeHtml(producto.nombre)}" disabled>${escapeHtml(producto.nombre)} — ${escapeHtml(renderInventoryModeLabel(producto))} · no se compra por este módulo</option>
+        <option value="${escapeHtml(producto.id)}" data-name="${escapeHtml(producto.nombre)}" disabled>${escapeHtml(producto.nombre)} — ${escapeHtml(renderInventoryModeLabel(producto))}${escapeHtml(getProductCurrentStockLabel(producto))} · no se compra por este módulo</option>
       `).join('');
       }
       return state.productos.map(producto => `
-        <option value="${escapeHtml(producto.id)}" data-name="${escapeHtml(producto.nombre)}" ${String(producto.id) === String(selectedId) ? 'selected' : ''} ${canBePurchased(producto) ? '' : 'disabled'}>${escapeHtml(producto.nombre)} — ${escapeHtml(renderInventoryModeLabel(producto))}${canBePurchased(producto) ? '' : ' · no se compra por este módulo'}</option>
+        <option value="${escapeHtml(producto.id)}" data-name="${escapeHtml(producto.nombre)}" ${String(producto.id) === String(selectedId) ? 'selected' : ''} ${canBePurchased(producto) ? '' : 'disabled'}>${escapeHtml(producto.nombre)} — ${escapeHtml(renderInventoryModeLabel(producto))}${escapeHtml(getProductCurrentStockLabel(producto))}${canBePurchased(producto) ? '' : ' · no se compra por este módulo'}</option>
       `).join('');
     }
 
@@ -8872,7 +9077,8 @@
     function getPurchasePaymentActionLabel(compra) {
       if (isCreditPurchase(compra)) {
         const paidAmount = getPurchasePaidAmount(compra);
-        if (isPaidCreditPurchase(compra)) return 'Estado de cuenta';
+        const paymentHistory = getNormalizedRecordPaymentHistory(compra, getPurchaseTotalAmount(compra));
+        if (isPaidCreditPurchase(compra)) return paymentHistory.length === 1 ? 'Editar abono' : 'Estado de cuenta';
         return paidAmount > 0 ? 'Registrar abono' : 'Aplicar pago';
       }
       return 'Editar pago';
@@ -8905,7 +9111,8 @@
     function getSalePaymentActionLabel(venta) {
       if (isCreditSale(venta)) {
         const paidAmount = getSalePaidAmount(venta);
-        if (isPaidCreditSale(venta)) return 'Estado de cuenta';
+        const paymentHistory = getNormalizedRecordPaymentHistory(venta, getSaleTotalAmount(venta));
+        if (isPaidCreditSale(venta)) return paymentHistory.length === 1 ? 'Editar abono' : 'Estado de cuenta';
         return paidAmount > 0 ? 'Registrar abono' : 'Aplicar pago';
       }
       return 'Editar pago';
@@ -9036,11 +9243,12 @@
       return resolveAccountStatus(getExternalDebtBalanceDue(debt), getExternalDebtPaidAmount(debt), debt?.dueDate);
     }
 
-    function renderAccountStatementTable(container, record, totalAmount, emptyMessage = 'Aún no hay abonos registrados.') {
+    function renderAccountStatementTable(container, record, totalAmount, emptyMessage = 'Aún no hay abonos registrados.', options = {}) {
       if (!container) {
         return;
       }
       const history = getNormalizedRecordPaymentHistory(record, totalAmount).slice().reverse();
+      const showActions = typeof options.renderActions === 'function';
       if (!history.length) {
         container.innerHTML = `<p class="history-empty">${escapeHtml(emptyMessage)}</p>`;
         return;
@@ -9056,6 +9264,7 @@
               <th>Monto</th>
               <th>Referencia</th>
               <th>Observación</th>
+              ${showActions ? '<th>Acción</th>' : ''}
             </tr>
           </thead>
           <tbody>
@@ -9067,6 +9276,7 @@
                 <td>${formatCurrency(entry.amount)}</td>
                 <td>${escapeHtml(entry.paymentReference || '-')}</td>
                 <td>${escapeHtml(entry.note || '-')}</td>
+                ${showActions ? `<td>${options.renderActions(entry) || '-'}</td>` : ''}
               </tr>
             `).join('')}
           </tbody>
@@ -9085,6 +9295,63 @@
       }, 0);
 
       return `${prefix}-${String(maxSequence + 1).padStart(4, '0')}`;
+    }
+
+    function resetPurchasePaymentEntryEditing() {
+      editingPurchasePaymentEntryId = null;
+    }
+
+    function resetSalePaymentEntryEditing() {
+      editingSalePaymentEntryId = null;
+    }
+
+    function resetExternalDebtPaymentEntryEditing() {
+      editingExternalDebtPaymentEntryId = null;
+    }
+
+    function startEditPurchasePaymentEntry(paymentEntry) {
+      if (!paymentEntry) {
+        return;
+      }
+      editingPurchasePaymentEntryId = paymentEntry.id;
+      purchasePayableMethodInput.value = paymentEntry.paymentMethod || 'efectivo';
+      purchasePayableDateInput.value = paymentEntry.date ? new Date(paymentEntry.date).toISOString().slice(0, 10) : getTodayInputValue();
+      purchasePayableAmountInput.value = Number(paymentEntry.amount || 0).toFixed(2);
+      purchasePayableReferenceInput.value = paymentEntry.paymentReference || '';
+      updatePurchasePayableReferenceVisibility();
+      purchasePayableModalTitle.textContent = 'Editar abono';
+      submitPurchasePayableButton.textContent = 'Guardar cambios';
+      setPurchasePayableStatus('Corrige el método, la referencia o la fecha del abono seleccionado.');
+    }
+
+    function startEditSalePaymentEntry(paymentEntry) {
+      if (!paymentEntry) {
+        return;
+      }
+      editingSalePaymentEntryId = paymentEntry.id;
+      salePayableMethodInput.value = paymentEntry.paymentMethod || 'efectivo';
+      salePayableDateInput.value = paymentEntry.date ? new Date(paymentEntry.date).toISOString().slice(0, 10) : getTodayInputValue();
+      salePayableAmountInput.value = Number(paymentEntry.amount || 0).toFixed(2);
+      salePayableReferenceInput.value = paymentEntry.paymentReference || '';
+      updateSalePayableReferenceVisibility();
+      salePayableModalTitle.textContent = 'Editar abono';
+      submitSalePayableButton.textContent = 'Guardar cambios';
+      setSalePayableStatus('Corrige el método, la referencia o la fecha del cobro seleccionado.');
+    }
+
+    function startEditExternalDebtPaymentEntry(paymentEntry) {
+      if (!paymentEntry) {
+        return;
+      }
+      editingExternalDebtPaymentEntryId = paymentEntry.id;
+      externalDebtPaymentAccountInput.value = paymentEntry.account || getFundAccountFromPaymentMethod(paymentEntry.paymentMethod) || 'efectivo';
+      externalDebtPaymentDateInput.value = paymentEntry.date ? new Date(paymentEntry.date).toISOString().slice(0, 10) : getTodayInputValue();
+      externalDebtPaymentAmountInput.value = Number(paymentEntry.amount || 0).toFixed(2);
+      externalDebtPaymentReferenceInput.value = paymentEntry.paymentReference || '';
+      externalDebtPaymentNoteInput.value = paymentEntry.note || '';
+      externalDebtPaymentModalTitle.textContent = 'Editar abono';
+      submitExternalDebtPaymentButton.textContent = 'Guardar cambios';
+      setExternalDebtPaymentStatus('Corrige la cuenta, la referencia o la fecha del abono seleccionado.');
     }
 
     function updateNextSaleDocumentNumber() {
@@ -9382,7 +9649,7 @@
               </div>
 
               <footer class="footer">
-                Documento generado desde el módulo Pagos. Conserva este recibo como respaldo de la salida registrada.
+                ${escapeHtml(receipt.footerText || 'Documento generado desde el módulo Pagos. Conserva este recibo como respaldo de la salida registrada.')}
               </footer>
             </main>
             <script>
@@ -9443,6 +9710,29 @@
       }, options);
     }
 
+    function printSalePayableReceipt(venta, paymentEntry, options = {}) {
+      if (!venta || !paymentEntry) {
+        return;
+      }
+      return printOutgoingReceipt({
+        id: paymentEntry.id,
+        recordId: venta.id,
+        receiptNumber: paymentEntry.receiptNumber || paymentEntry.paymentReference || null,
+        reference: paymentEntry.paymentReference || null,
+        date: paymentEntry.date,
+        issueDate: paymentEntry.date,
+        statusLabel: getSaleAccountStatus(venta).label,
+        title: `Cobro de cuenta por cobrar ${venta.documento || ''}`.trim(),
+        counterparty: venta.cliente || 'Cliente no especificado',
+        category: 'Cuenta por cobrar',
+        methodLabel: getPaymentMethodLabel(paymentEntry.paymentMethod),
+        description: `Factura ${venta.documento || '-'} · ${venta.cliente || 'Cliente'}`,
+        note: paymentEntry.note || 'Cobro aplicado a venta a crédito.',
+        amount: Number(paymentEntry.amount || 0),
+        footerText: 'Documento generado desde el módulo de cuentas por cobrar. Conserva este recibo como respaldo del cobro registrado.'
+      }, options);
+    }
+
     function printExternalDebtReceipt(debt, paymentEntry, options = {}) {
       if (!debt || !paymentEntry) {
         return;
@@ -9478,6 +9768,14 @@
         return escapeHtml(normalizedReference);
       }
       return `<button type="button" class="invoice-link-btn" data-${datasetName}="${escapeHtml(String(datasetValue || ''))}" title="Reimprimir recibo">${escapeHtml(normalizedReference)}</button>`;
+    }
+
+    function buildPaymentEntryReceiptMarkup(paymentEntry, datasetName, datasetValue) {
+      if (!paymentEntry) {
+        return 'N/A';
+      }
+      const label = String(paymentEntry.receiptNumber || paymentEntry.paymentReference || 'Ver recibo').trim();
+      return `<button type="button" class="invoice-link-btn" data-${datasetName}="${escapeHtml(String(datasetValue || ''))}" title="Reimprimir recibo">${escapeHtml(label)}</button>`;
     }
 
     function getActionIcon(label) {
@@ -9560,6 +9858,7 @@
       fundExternalPanel.classList.add('active');
       editingExternalDebtId = String(debt.id);
       externalDebtTypeInput.value = debt.type || 'por-pagar';
+      externalDebtCategoryInput.value = (debt.categoria || debt.category || 'gasto');
       externalDebtDateInput.value = debt.fecha ? new Date(debt.fecha).toISOString().slice(0, 10) : getTodayInputValue();
       externalDebtDueDateInput.value = debt.dueDate ? new Date(debt.dueDate).toISOString().slice(0, 10) : '';
       externalDebtAmountInput.value = Number(getExternalDebtOriginalAmount(debt) || 0).toFixed(2);
@@ -9611,7 +9910,8 @@
         paymentMethod: purchasePayableMethodInput.value,
         paymentReference: purchasePayableReferenceInput.value.trim(),
         paidAt: purchasePayableDateInput.value,
-        amount: Number(purchasePayableAmountInput.value || 0)
+        amount: Number(purchasePayableAmountInput.value || 0),
+        paymentEntryId: editingPurchasePaymentEntryId || null
       };
 
       if (!payload.paymentMethod || !payload.paidAt || Number.isNaN(payload.amount) || payload.amount <= 0) {
@@ -9648,9 +9948,13 @@
         purchaseStatus.textContent = result.message || 'Pago aplicado correctamente.';
   showSuccess(result.message || 'Pago aplicado correctamente.');
         closePurchasePayableModalPanel();
-        await fetchCompras();
+        await Promise.all([fetchCompras(), fetchPayments()]);
         renderPurchaseRegistro();
         renderPurchasePayables();
+        renderPaymentInfo();
+        renderPaymentRegistro();
+        renderPendingPayments();
+        renderFundsModule();
         if (latestPayment) {
           printPurchasePayableReceipt(updatedPurchase, latestPayment, { autoPrint: true });
         }
@@ -9676,7 +9980,8 @@
         paymentMethod: salePayableMethodInput.value,
         paymentReference: salePayableReferenceInput.value.trim(),
         paidAt: salePayableDateInput.value,
-        amount: Number(salePayableAmountInput.value || 0)
+        amount: Number(salePayableAmountInput.value || 0),
+        paymentEntryId: editingSalePaymentEntryId || null
       };
 
       if (!payload.paymentMethod || !payload.paidAt || Number.isNaN(payload.amount) || payload.amount <= 0) {
@@ -9707,6 +10012,9 @@
           throw new Error(result.error || 'No se pudo aplicar el pago.');
         }
 
+        const updatedSale = result.venta || null;
+        const latestPayment = updatedSale ? getLastRecordPayment(updatedSale, getSaleTotalAmount(updatedSale)) : null;
+
         saleStatus.className = 'status';
         saleStatus.textContent = result.message || 'Pago aplicado correctamente.';
         showSuccess(result.message || 'Pago aplicado correctamente.');
@@ -9714,6 +10022,9 @@
         await fetchVentas();
         renderSaleRegistro();
         renderSaleReceivables();
+        if (latestPayment) {
+          printSalePayableReceipt(updatedSale, latestPayment, { autoPrint: true });
+        }
       } catch (error) {
         setSalePayableStatus(error.message, { error: true });
         showError(error.message);
@@ -11012,6 +11323,10 @@
                 const personalization = formatSalePersonalization(item);
                 const allowPaymentEditing = canManageSalePayment(venta);
                 const actionLabel = getSalePaymentActionLabel(venta);
+                const lastPayment = getLastRecordPayment(venta, getSaleTotalAmount(venta));
+                const referenceMarkup = lastPayment
+                  ? buildPaymentEntryReceiptMarkup(lastPayment, 'sale-registro-receipt', venta.id)
+                  : escapeHtml(venta.paymentReference || '-');
                 const costSummary = getSaleItemTrackedCostSummary(item);
                 return `
                   <tr>
@@ -11020,7 +11335,7 @@
                     <td>${formatDate(venta.fecha)}</td>
                     <td>${escapeHtml(getSalePaymentTypeLabel(venta))}</td>
                     <td>${escapeHtml(venta.paymentMethod || '')}</td>
-                    <td>${escapeHtml(venta.paymentReference || '-')}</td>
+                    <td>${referenceMarkup}</td>
                     <td>${venta.paidAt ? formatDate(venta.paidAt) : '-'}</td>
                     <td>${escapeHtml(item.nombre || '')}</td>
                     <td>${escapeHtml(personalization)}</td>
@@ -11038,6 +11353,20 @@
           </tbody>
         </table>
       `;
+
+      saleRecords.querySelectorAll('[data-sale-registro-receipt]').forEach(button => {
+        button.addEventListener('click', () => {
+          const sale = getSaleById(button.dataset.saleRegistroReceipt);
+          if (!sale) {
+            return;
+          }
+          const lastPayment = getLastRecordPayment(sale, getSaleTotalAmount(sale));
+          if (!lastPayment) {
+            return;
+          }
+          printSalePayableReceipt(sale, lastPayment);
+        });
+      });
 
       saleRecords.querySelectorAll('[data-registro-sale-pay]').forEach(button => {
         button.addEventListener('click', () => openSalePayableModalPanel(button.dataset.registroSalePay));
@@ -11125,6 +11454,7 @@
               <th>Monto</th>
               <th>Abonado</th>
               <th>Saldo</th>
+              <th>Recibo</th>
               <th>Acción</th>
             </tr>
           </thead>
@@ -11135,6 +11465,7 @@
               const totalAmount = getSaleTotalAmount(venta);
               const paidAmount = getSalePaidAmount(venta);
               const balanceDue = getSaleBalanceDue(venta);
+              const lastPayment = getLastRecordPayment(venta, totalAmount);
               const status = getSaleAccountStatus(venta);
               const isOverdue = status.key === 'overdue';
               const agingLabel = dayDifference === null ? 'Sin fecha' : isOverdue ? `${Math.abs(dayDifference)} vencidos` : dayDifference === 0 ? 'Vence hoy' : `${dayDifference} por vencer`;
@@ -11149,6 +11480,7 @@
                   <td>${formatCurrency(totalAmount)}</td>
                   <td>${formatCurrency(paidAmount)}</td>
                   <td>${formatCurrency(balanceDue)}</td>
+                  <td>${buildPaymentEntryReceiptMarkup(lastPayment, 'sale-receipt', venta.id)}</td>
                   <td><button type="button" class="secondary-btn action-icon-btn payables-apply-btn" data-sale-pay="${escapeHtml(String(venta.id || ''))}" title="${escapeHtml(getSalePaymentActionLabel(venta))}">${getActionIcon(getSalePaymentActionLabel(venta))}</button></td>
                 </tr>
               `;
@@ -11156,6 +11488,20 @@
           </tbody>
         </table>
       `;
+
+      saleReceivablesReport.querySelectorAll('[data-sale-receipt]').forEach(button => {
+        button.addEventListener('click', () => {
+          const sale = getSaleById(button.dataset.saleReceipt);
+          if (!sale) {
+            return;
+          }
+          const lastPayment = getLastRecordPayment(sale, getSaleTotalAmount(sale));
+          if (!lastPayment) {
+            return;
+          }
+          printSalePayableReceipt(sale, lastPayment);
+        });
+      });
 
       saleReceivablesReport.querySelectorAll('[data-sale-pay]').forEach(button => {
         button.addEventListener('click', () => openSalePayableModalPanel(button.dataset.salePay));
@@ -12012,6 +12358,10 @@
 
       state.purchases.forEach(purchase => {
         getNormalizedRecordPaymentHistory(purchase, getPurchaseTotalAmount(purchase)).forEach((payment, index) => {
+          const paymentMethod = String(payment.paymentMethod || payment.account || purchase.paymentMethod || '').trim().toLowerCase();
+          if (paymentMethod === 'tarjeta') {
+            return;
+          }
           const account = getFundAccountFromPaymentMethod(payment.paymentMethod || payment.account);
           if (!account) {
             return;
@@ -12148,6 +12498,7 @@
             <tr>
               <th>Fecha</th>
               <th>Origen</th>
+              <th>Documento</th>
               <th>Detalle</th>
               <th>Método</th>
               <th>Entrada</th>
@@ -12161,10 +12512,8 @@
               <tr>
                 <td>${escapeHtml(getFundMovementDisplayDate(movement))}</td>
                 <td>${escapeHtml(getFundMovementModuleLabel(movement.module))}</td>
-                <td>
-                  <strong>${escapeHtml(movement.title || 'Movimiento')}</strong>
-                  ${movement.detail ? `<div class="field-help">${escapeHtml(movement.detail)}</div>` : ''}
-                </td>
+                <td><strong>${escapeHtml(movement.title || 'Movimiento')}</strong></td>
+                <td>${movement.detail ? `<div class="field-help">${escapeHtml(movement.detail)}</div>` : '-'}</td>
                 <td>${escapeHtml(getFundMovementMethodLabel(movement.paymentMethod))}</td>
                 <td>${movement.direction === 'entrada' ? formatCurrency(movement.amount) : '-'}</td>
                 <td>${movement.direction === 'salida' ? formatCurrency(movement.amount) : '-'}</td>
@@ -12230,18 +12579,21 @@
     }
 
     function openExternalDebtPaymentModalPanel(debtId) {
+      resetExternalDebtPaymentEntryEditing();
       payingExternalDebtId = debtId;
       const debt = state.externalDebts.find(item => String(item.id) === String(debtId));
       const originalAmount = getExternalDebtOriginalAmount(debt);
       const paidAmount = getExternalDebtPaidAmount(debt);
       const balanceDue = getExternalDebtBalanceDue(debt);
       const status = getExternalDebtStatus(debt);
-      const isViewOnly = balanceDue <= 0.0001;
+      const paymentHistory = getNormalizedRecordPaymentHistory(debt, originalAmount);
+      const isViewOnly = balanceDue <= 0.0001 && paymentHistory.length === 0;
       externalDebtPaymentForm.reset();
       externalDebtPaymentDateInput.value = getTodayInputValue();
       externalDebtPaymentAmountInput.value = balanceDue > 0 ? balanceDue.toFixed(2) : originalAmount.toFixed(2);
       externalDebtPaymentAccountInput.value = 'efectivo';
       externalDebtPaymentModalTitle.textContent = isViewOnly ? 'Estado de cuenta' : 'Registrar abono';
+      submitExternalDebtPaymentButton.textContent = 'Registrar abono';
       submitExternalDebtPaymentButton.style.display = isViewOnly ? 'none' : 'inline-flex';
       [externalDebtPaymentAccountInput, externalDebtPaymentDateInput, externalDebtPaymentAmountInput, externalDebtPaymentReferenceInput, externalDebtPaymentNoteInput].forEach(input => {
         input.disabled = isViewOnly;
@@ -12249,7 +12601,35 @@
       externalDebtPaymentSummary.textContent = debt
         ? `${debt.type === 'por-cobrar' ? 'Por cobrar a' : 'Por pagar a'} ${debt.tercero || '-'} · total ${formatCurrency(originalAmount)} · abonado ${formatCurrency(paidAmount)} · saldo ${formatCurrency(balanceDue)} · estado ${status.label}.`
         : 'Consulta el estado de cuenta o registra un abono.';
-      renderAccountStatementTable(externalDebtPaymentHistory, debt, originalAmount, 'Aún no hay abonos registrados para esta deuda externa.');
+      renderAccountStatementTable(externalDebtPaymentHistory, debt, originalAmount, 'Aún no hay abonos registrados para esta deuda externa.', {
+        renderActions: entry => `
+          <div class="purchase-row-actions">
+            <button type="button" class="secondary-btn action-icon-btn" data-external-debt-payment-entry-edit="${escapeHtml(entry.id)}" title="Editar abono">✎</button>
+            <button type="button" class="secondary-btn action-icon-btn" data-external-debt-payment-entry-print="${escapeHtml(entry.id)}" title="Imprimir recibo">🧾</button>
+          </div>
+        `
+      });
+      externalDebtPaymentHistory.querySelectorAll('[data-external-debt-payment-entry-edit]').forEach(button => {
+        button.addEventListener('click', () => {
+          const paymentEntry = paymentHistory.find(entry => String(entry.id) === String(button.dataset.externalDebtPaymentEntryEdit));
+          if (!paymentEntry) {
+            return;
+          }
+          startEditExternalDebtPaymentEntry(paymentEntry);
+        });
+      });
+      externalDebtPaymentHistory.querySelectorAll('[data-external-debt-payment-entry-print]').forEach(button => {
+        button.addEventListener('click', () => {
+          const paymentEntry = paymentHistory.find(entry => String(entry.id) === String(button.dataset.externalDebtPaymentEntryPrint));
+          if (!paymentEntry) {
+            return;
+          }
+          printExternalDebtReceipt(debt, paymentEntry);
+        });
+      });
+      if (balanceDue <= 0.0001 && paymentHistory.length === 1) {
+        startEditExternalDebtPaymentEntry(paymentHistory[0]);
+      }
       setExternalDebtPaymentStatus(isViewOnly ? 'La deuda ya está saldada. Aquí puedes consultar su estado de cuenta.' : 'Confirma el monto, la cuenta y la fecha del abono.');
       externalDebtPaymentModal.classList.remove('field-hidden');
       externalDebtPaymentModal.setAttribute('aria-hidden', 'false');
@@ -12257,8 +12637,10 @@
     }
 
     function closeExternalDebtPaymentModalPanel() {
+      resetExternalDebtPaymentEntryEditing();
       payingExternalDebtId = null;
       externalDebtPaymentModalTitle.textContent = 'Registrar abono';
+      submitExternalDebtPaymentButton.textContent = 'Registrar abono';
       submitExternalDebtPaymentButton.style.display = 'inline-flex';
       [externalDebtPaymentAccountInput, externalDebtPaymentDateInput, externalDebtPaymentAmountInput, externalDebtPaymentReferenceInput, externalDebtPaymentNoteInput].forEach(input => {
         input.disabled = false;
@@ -12504,7 +12886,12 @@
                 <td>${escapeHtml(getPaymentMethodLabel(payment.paymentMethod))}</td>
                 <td><span class="status-chip ${getPaymentStatusClass(payment)}">${escapeHtml(getPaymentStatusLabel(payment))}</span></td>
                 <td>${formatCurrency(payment.monto)}</td>
-                <td>${buildReceiptReferenceMarkup(payment.receiptNumber || payment.reimbursementReference || payment.referencia, 'payment-receipt', payment.id)}</td>
+                <td>${(payment.receiptNumber || payment.reimbursementReference || payment.referencia)
+                  ? buildPaymentEntryReceiptMarkup({
+                    receiptNumber: payment.receiptNumber,
+                    paymentReference: payment.reimbursementReference || payment.referencia
+                  }, 'payment-receipt', payment.id)
+                  : 'N/A'}</td>
                 <td><button type="button" class="secondary-btn action-icon-btn" data-payment-edit="${escapeHtml(String(payment.id || ''))}" title="Editar pago">✎</button></td>
               </tr>
             `).join('')}
@@ -13977,6 +14364,104 @@
       });
     }
 
+    function getDashboardIncomeStatementReferenceMonth() {
+      const monthValue = String(dashboardIncomeStatementMonthInput?.value || getCurrentMonthInputValue()).trim();
+      const [yearText, monthText] = monthValue.split('-');
+      const year = Number(yearText);
+      const monthIndex = Number(monthText) - 1;
+      if (Number.isInteger(year) && Number.isInteger(monthIndex) && monthIndex >= 0 && monthIndex <= 11) {
+        return new Date(year, monthIndex, 1);
+      }
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    function isDateWithinMonthRange(value, monthStart, nextMonthStart) {
+      if (!value) {
+        return false;
+      }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return false;
+      }
+      return date >= monthStart && date < nextMonthStart;
+    }
+
+    function buildDashboardIncomeStatementMonth(monthDate) {
+      // Declarar los límites del mes antes de usarlos
+      const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+      const nextMonthStart = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1);
+      // Desglose de gastos: pagos y deudas externas
+      const detalleGastosPagos = state.payments.filter(payment => isExpensePayment(payment) && isDateWithinMonthRange(payment.fecha || payment.createdAt, monthStart, nextMonthStart))
+        .map(payment => ({
+          fecha: payment.fecha || payment.createdAt,
+          descripcion: payment.descripcion || payment.concepto || payment.nota || '',
+          categoria: getPaymentCategoryName(payment),
+          monto: Number(payment.monto || 0)
+        }));
+      const detalleGastosDeudas = state.externalDebts.filter(debt => String(debt?.type || '').trim().toLowerCase() === 'por-pagar' && (debt.categoria || debt.category || '').toLowerCase() === 'gasto' && isDateWithinMonthRange(debt.fecha || debt.createdAt, monthStart, nextMonthStart))
+        .map(debt => ({
+          fecha: debt.fecha,
+          descripcion: debt.concepto || debt.nota || '',
+          categoria: (debt.categoria || debt.category || 'gasto'),
+          monto: getExternalDebtOriginalAmount(debt),
+          tercero: debt.tercero || ''
+        }));
+      const ingresos = state.sales.reduce((sum, venta) => {
+        return isDateWithinMonthRange(venta.fecha, monthStart, nextMonthStart)
+          ? sum + calculateSaleInvoiceTotal(venta)
+          : sum;
+      }, 0);
+      const costos = state.inventoryMovements.reduce((sum, movement) => {
+        return String(movement?.tipo || '').trim().toLowerCase() === 'salida'
+          && isDateWithinMonthRange(movement.fecha || movement.createdAt, monthStart, nextMonthStart)
+          ? sum + Number(movement.costoTotal || 0)
+          : sum;
+      }, 0);
+      // Solo pagos con categoría 'gasto'
+      const gastosPagos = state.payments.reduce((sum, payment) => {
+        return isExpensePayment(payment) && isDateWithinMonthRange(payment.fecha || payment.createdAt, monthStart, nextMonthStart)
+          ? sum + Number(payment.monto || 0)
+          : sum;
+      }, 0);
+      // Solo deudas externas 'por pagar' con categoría 'gasto'
+      const gastosDeudasExternas = state.externalDebts.reduce((sum, debt) => {
+        const debtType = String(debt?.type || '').trim().toLowerCase();
+        const debtCategory = (debt.categoria || debt.category || '').toLowerCase();
+        return debtType === 'por-pagar' && debtCategory === 'gasto' && isDateWithinMonthRange(debt.fecha || debt.createdAt, monthStart, nextMonthStart)
+          ? sum + getExternalDebtOriginalAmount(debt)
+          : sum;
+      }, 0);
+      const gastos = gastosPagos + gastosDeudasExternas;
+      const utilidadBruta = ingresos - costos;
+      const utilidadNeta = utilidadBruta - gastos;
+
+      return {
+        key: `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`,
+        label: monthStart.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }),
+        ingresos,
+        costos,
+        utilidadBruta,
+        gastos,
+        utilidadNeta,
+        salesCount: state.sales.filter(venta => isDateWithinMonthRange(venta.fecha, monthStart, nextMonthStart)).length,
+        costMovementsCount: state.inventoryMovements.filter(movement => String(movement?.tipo || '').trim().toLowerCase() === 'salida' && isDateWithinMonthRange(movement.fecha || movement.createdAt, monthStart, nextMonthStart)).length,
+        expenseCount:
+          state.payments.filter(payment => isExpensePayment(payment) && isDateWithinMonthRange(payment.fecha || payment.createdAt, monthStart, nextMonthStart)).length
+          + state.externalDebts.filter(debt => String(debt?.type || '').trim().toLowerCase() === 'por-pagar' && (debt.categoria || debt.category || '').toLowerCase() === 'gasto' && isDateWithinMonthRange(debt.fecha || debt.createdAt, monthStart, nextMonthStart)).length,
+        detalleGastosPagos,
+        detalleGastosDeudas
+      };
+    }
+
+    function buildDashboardIncomeStatement(referenceMonth = getDashboardIncomeStatementReferenceMonth()) {
+      const months = [];
+      for (let offset = 0; offset < 4; offset += 1) {
+        months.push(buildDashboardIncomeStatementMonth(new Date(referenceMonth.getFullYear(), referenceMonth.getMonth() - offset, 1)));
+      }
+      return months;
+    }
+
     function getDashboardCashflowFilter() {
       const mode = dashboardCashflowFilterModeInput?.value === 'range' ? 'range' : 'month';
       if (mode === 'range') {
@@ -13999,12 +14484,19 @@
       }
 
       const monthValue = String(dashboardCashflowFilterMonthInput?.value || getCurrentMonthInputValue()).trim();
-      const [yearText, monthText] = monthValue.split('-');
-      const year = Number(yearText);
-      const monthIndex = Number(monthText) - 1;
-      const monthStart = Number.isInteger(year) && Number.isInteger(monthIndex)
-        ? new Date(year, monthIndex, 1)
-        : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      let year = NaN, monthIndex = NaN;
+      if (monthValue && monthValue.includes('-')) {
+        const [yearText, monthText] = monthValue.split('-');
+        year = Number(yearText);
+        monthIndex = Number(monthText) - 1;
+      }
+      let monthStart;
+      if (Number.isInteger(year) && !Number.isNaN(monthIndex) && monthIndex >= 0 && monthIndex < 12) {
+        monthStart = new Date(year, monthIndex, 1);
+      } else {
+        const now = new Date();
+        monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      }
       const nextMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
       return {
         mode,
@@ -14306,11 +14798,197 @@
       `).join('');
     }
 
+    function renderDashboardIncomeStatement(container, items) {
+      if (!container) return;
+      if (!Array.isArray(items) || !items.length) {
+        container.innerHTML = '<p class="dashboard-empty">Todavía no hay datos suficientes para mostrar el estado de resultados.</p>';
+        return;
+      }
+
+      container.innerHTML = items.map(item => {
+        const netClass = item.utilidadNeta < 0 ? 'is-loss' : '';
+        return `
+          <article class="dashboard-income-card ${netClass}">
+            <div class="dashboard-income-header">
+              <div>
+                <div class="dashboard-income-title">${escapeHtml(item.label)}</div>
+                <div class="dashboard-income-meta">${escapeHtml(String(item.salesCount))} venta(s) · ${escapeHtml(String(item.costMovementsCount))} salida(s) costo · ${escapeHtml(String(item.expenseCount))} gasto(s)</div>
+              </div>
+              <div class="dashboard-income-net">${escapeHtml(formatCurrency(item.utilidadNeta))}</div>
+            </div>
+            <div class="dashboard-income-rows">
+              <div class="dashboard-income-row">
+                <span>Ingresos</span>
+                <strong>${escapeHtml(formatCurrency(item.ingresos))}</strong>
+              </div>
+              <div class="dashboard-income-row">
+                <span>Costos</span>
+                <strong>${escapeHtml(formatCurrency(item.costos))}</strong>
+              </div>
+              <div class="dashboard-income-row ${item.utilidadBruta < 0 ? 'is-loss' : 'is-profit'}">
+                <span>Utilidad bruta</span>
+                <strong>${escapeHtml(formatCurrency(item.utilidadBruta))}</strong>
+              </div>
+              <div class="dashboard-income-row">
+                <span>Gastos</span>
+                <strong style="color:#e74c3c;">${escapeHtml(formatCurrency(item.gastos))}</strong>
+              </div>
+              <div class="dashboard-income-row dashboard-income-row-detail">
+                <span>Gastos por clasificación</span>
+                <div class="dashboard-expense-summary-list">
+                  ${(() => {
+                    const gastos = [...(item.detalleGastosPagos || []), ...(item.detalleGastosDeudas || [])];
+                    if (gastos.length === 0) {
+                      return '<span class="dashboard-expense-detail-empty">Sin gastos registrados</span>';
+                    }
+                    // Agrupar por categoría
+                    const grupos = {};
+                    gastos.forEach(gasto => {
+                      const cat = gasto.categoria || 'Otros';
+                      if (!grupos[cat]) grupos[cat] = [];
+                      grupos[cat].push(gasto);
+                    });
+                    // Guardar para acceso global en modal
+                    window._dashboardExpenseGroups = grupos;
+                    return Object.entries(grupos).map(([cat, lista]) => `
+                      <button type="button" class="dashboard-expense-summary-item" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 0 10px 0;background:none;border:none;outline:none;cursor:pointer;border-radius:8px;transition:background 0.2s;gap:10px;" onmouseover="this.style.background='#f9eaea'" onmouseout="this.style.background='none'" onclick='window.showExpenseModal(${JSON.stringify(cat)})'
+                        <span style="color:#e74c3c;font-weight:600;font-size:1em;">${escapeHtml(cat)}</span>
+                        <span style="color:#e74c3c;font-weight:bold;font-size:1.1em;min-width:100px;text-align:right;">${escapeHtml(formatCurrency(lista.reduce((a, b) => a + (b.monto || 0), 0)))}</span>
+                      </button>
+                    `).join('');
+                  })()}
+                </div>
+              </div>
+              <style>
+                .dashboard-modal-overlay {
+                  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                  background: rgba(30,30,30,0.35); backdrop-filter: blur(2px);
+                  z-index: 10000; display: flex; align-items: center; justify-content: center;
+                  transition: opacity 0.2s;
+                }
+                .dashboard-modal {
+                  background: #fff; border-radius: 18px; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+                  min-width: 340px; max-width: 95vw; width: 400px; max-height: 80vh; display: flex; flex-direction: column;
+                  padding: 0; position: relative;
+                }
+                <script>
+                if (!window.showExpenseModal) {
+                  window.showExpenseModal = function(cat) {
+                    const grupos = window._dashboardExpenseGroups || {};
+                    const lista = grupos[cat] || [];
+                    // Crear overlay
+                    let overlay = document.createElement('div');
+                    overlay.className = 'dashboard-modal-overlay';
+                    overlay.onclick = function(e) {
+                      if (e.target === overlay) close();
+                    };
+                    // Crear modal
+                    let modal = document.createElement('div');
+                    modal.className = 'dashboard-modal';
+                    // Botón cerrar
+                    let closeBtn = document.createElement('button');
+                    closeBtn.className = 'dashboard-modal-close';
+                    closeBtn.innerHTML = '&times;';
+                    closeBtn.onclick = close;
+                    modal.appendChild(closeBtn);
+                    // Header
+                    let header = document.createElement('div');
+                    header.className = 'dashboard-modal-header';
+                    let title = document.createElement('div');
+                    title.className = 'dashboard-modal-title';
+                    title.textContent = cat;
+                    let subtitle = document.createElement('div');
+                    subtitle.className = 'dashboard-modal-subtitle';
+                    subtitle.textContent = 'Total: ' + (window.formatCurrency ? window.formatCurrency(lista.reduce((a, b) => a + (b.monto || 0), 0)) : 'C$' + lista.reduce((a, b) => a + (b.monto || 0), 0).toLocaleString('es-NI', {minimumFractionDigits:2, maximumFractionDigits:2}));
+                    header.appendChild(title);
+                    header.appendChild(subtitle);
+                    modal.appendChild(header);
+                    // Listado
+                    let list = document.createElement('div');
+                    list.className = 'dashboard-modal-list';
+                    if (lista.length === 0) {
+                      list.innerHTML = '<span class="dashboard-expense-detail-empty">Sin gastos registrados</span>';
+                    } else {
+                      lista.forEach(gasto => {
+                        let item = document.createElement('div');
+                        item.className = 'dashboard-modal-list-item';
+                        let date = document.createElement('span');
+                        date.className = 'dashboard-modal-list-date';
+                        date.textContent = window.formatDate ? window.formatDate(gasto.fecha) : gasto.fecha;
+                        let desc = document.createElement('span');
+                        desc.className = 'dashboard-modal-list-desc';
+                        desc.innerHTML = window.escapeHtml ? window.escapeHtml(gasto.descripcion || gasto.categoria || gasto.tercero || '-') + (gasto.tercero ? ' <span style=\"color:#888;font-size:0.95em;\">· ' + window.escapeHtml(gasto.tercero) + '</span>' : '') : (gasto.descripcion || gasto.categoria || gasto.tercero || '-');
+                        let amount = document.createElement('span');
+                        amount.className = 'dashboard-modal-list-amount';
+                        amount.textContent = window.formatCurrency ? window.formatCurrency(gasto.monto) : 'C$' + (gasto.monto || 0).toLocaleString('es-NI', {minimumFractionDigits:2, maximumFractionDigits:2});
+                        item.appendChild(date);
+                        item.appendChild(desc);
+                        item.appendChild(amount);
+                        list.appendChild(item);
+                      });
+                    }
+                    modal.appendChild(list);
+                    overlay.appendChild(modal);
+                    document.body.appendChild(overlay);
+                    function close() {
+                      document.body.removeChild(overlay);
+                    }
+                    // Cerrar con ESC
+                    setTimeout(() => {
+                      overlay.focus();
+                      window.addEventListener('keydown', escListener);
+                    }, 100);
+                    function escListener(e) {
+                      if (e.key === 'Escape') { close(); window.removeEventListener('keydown', escListener); }
+                    }
+                  };
+                }
+                    date.className = 'dashboard-modal-list-date';
+                    date.textContent = window.formatDate ? window.formatDate(gasto.fecha) : gasto.fecha;
+                    let desc = document.createElement('span');
+                    desc.className = 'dashboard-modal-list-desc';
+                    desc.innerHTML = window.escapeHtml ? window.escapeHtml(gasto.descripcion || gasto.categoria || gasto.tercero || '-') + (gasto.tercero ? ' <span style="color:#888;font-size:0.95em;">· ' + window.escapeHtml(gasto.tercero) + '</span>' : '') : (gasto.descripcion || gasto.categoria || gasto.tercero || '-');
+                    let amount = document.createElement('span');
+                    amount.className = 'dashboard-modal-list-amount';
+                    amount.textContent = window.formatCurrency ? window.formatCurrency(gasto.monto) : 'C$' + (gasto.monto || 0).toLocaleString('es-NI', {minimumFractionDigits:2, maximumFractionDigits:2});
+                    item.appendChild(date);
+                    item.appendChild(desc);
+                    item.appendChild(amount);
+                    list.appendChild(item);
+                  });
+                }
+                modal.appendChild(list);
+                overlay.appendChild(modal);
+                document.body.appendChild(overlay);
+                function close() {
+                  document.body.removeChild(overlay);
+                }
+                // Cerrar con ESC
+                setTimeout(() => {
+                  overlay.focus();
+                  window.addEventListener('keydown', escListener);
+                }, 100);
+                function escListener(e) {
+                  if (e.key === 'Escape') { close(); window.removeEventListener('keydown', escListener); }
+                }
+              };
+              <div class="dashboard-income-row ${item.utilidadNeta < 0 ? 'is-loss' : 'is-profit'}">
+                <span>${item.utilidadNeta < 0 ? 'Pérdida' : 'Utilidad neta'}</span>
+                <strong>${escapeHtml(formatCurrency(item.utilidadNeta))}</strong>
+              </div>
+            </div>
+            <div class="dashboard-income-footnote">Base: ventas del mes, inventoryMovements tipo salida usando costoTotal, pagos y deudas externas por pagar clasificadas como gasto. Sin recalcular costos ni PEPS.</div>
+          </article>
+        `;
+      }).join('');
+    }
+
     function renderDashboard() {
       if (!dashboardSummaryText) return;
 
       const now = new Date();
       const cashflowFilter = getDashboardCashflowFilter();
+      const incomeStatementReferenceMonth = getDashboardIncomeStatementReferenceMonth();
       const receivables = state.sales.filter(venta => isCreditSale(venta) && !isPaidCreditSale(venta));
       const payables = state.purchases.filter(compra => isCreditPurchase(compra) && !isPaidCreditPurchase(compra));
       const todaySales = state.sales.filter(venta => venta.fecha && isSameCalendarDay(new Date(venta.fecha), now));
@@ -14334,6 +15012,7 @@
       const activeSauces = state.sauceControls.filter(control => String(control.estado) === 'abierto');
       const salesComparison = buildDashboardSalesComparison(now);
       const cashFlowSnapshot = buildDashboardCashFlowSnapshot(now, cashflowFilter);
+      const incomeStatement = buildDashboardIncomeStatement(incomeStatementReferenceMonth);
       const topProducts = buildDashboardTopProducts();
       const financialSnapshot = buildDashboardFinancialSnapshot(now);
       const totalTodaySales = todaySales.reduce((sum, venta) => sum + calculateSaleInvoiceTotal(venta), 0);
@@ -14346,6 +15025,9 @@
       dashboardSummaryText.textContent = `Ventas, utilidad, inventario valorizado y alertas operativas en una sola vista.`;
       if (dashboardCashFlowSummary) {
         dashboardCashFlowSummary.textContent = `Revisa el flujo en efectivo, bancos y el consolidado con base en ventas, compras, pagos y traslados. Periodo: ${cashflowFilter.label}.`;
+      }
+      if (dashboardIncomeStatementSummary) {
+        dashboardIncomeStatementSummary.textContent = `Estado de resultados desde ${incomeStatement[incomeStatement.length - 1]?.label || ''} hasta ${incomeStatement[0]?.label || ''}, usando ventas, inventoryMovements tipo salida y gastos existentes.`;
       }
       dashboardLastUpdated.textContent = `Actualizado ${now.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })} ${now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`;
       dashboardSalesToday.textContent = formatCurrency(totalTodaySales);
@@ -14379,6 +15061,7 @@
 
       renderDashboardSalesComparison(dashboardSalesComparison, salesComparison);
       renderDashboardCashFlow(dashboardCashFlowGrid, cashFlowSnapshot);
+      renderDashboardIncomeStatement(dashboardIncomeStatementGrid, incomeStatement);
 
       renderDashboardTopProductsChart(dashboardTopProducts, topProducts);
 
@@ -15770,8 +16453,13 @@
         purchaseCajaFloat.classList.add('field-hidden');
         updatePurchasePaymentSection();
         renderPurchaseInfo();
-        await fetchProductos();
+        await Promise.all([fetchProductos(), fetchCompras(), fetchPayments()]);
         renderPurchaseRegistro();
+        renderPurchasePayables();
+        renderPaymentInfo();
+        renderPaymentRegistro();
+        renderPendingPayments();
+        renderFundsModule();
       } catch (error) {
         purchaseStatus.className = 'status error';
         purchaseStatus.textContent = error.message;
@@ -16286,12 +16974,24 @@
         renderDashboard();
       });
     }
+    if (dashboardIncomeStatementMonthInput) {
+      dashboardIncomeStatementMonthInput.addEventListener('change', renderDashboard);
+    }
+    if (dashboardIncomeStatementClearButton) {
+      dashboardIncomeStatementClearButton.addEventListener('click', () => {
+        if (dashboardIncomeStatementMonthInput) {
+          dashboardIncomeStatementMonthInput.value = getCurrentMonthInputValue();
+        }
+        renderDashboard();
+      });
+    }
     dashboardTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.dashboardTab;
         dashboardTabs.forEach(button => button.classList.toggle('active', button === tab));
         dashboardOverviewPanel.classList.toggle('active', tabName === 'overview');
         dashboardCashflowPanel.classList.toggle('active', tabName === 'cashflow');
+        dashboardIncomeStatementPanel.classList.toggle('active', tabName === 'income-statement');
       });
     });
     saleTabs.forEach(tab => {
@@ -16418,6 +17118,7 @@
         event.preventDefault();
         const payload = {
           type: externalDebtTypeInput.value,
+          categoria: externalDebtCategoryInput.value,
           fecha: externalDebtDateInput.value,
           dueDate: externalDebtDueDateInput.value || null,
           originalAmount: Number(externalDebtAmountInput.value || 0),
@@ -16484,7 +17185,8 @@
           date: externalDebtPaymentDateInput.value,
           amount: Number(externalDebtPaymentAmountInput.value || 0),
           paymentReference: externalDebtPaymentReferenceInput.value.trim(),
-          note: externalDebtPaymentNoteInput.value.trim()
+          note: externalDebtPaymentNoteInput.value.trim(),
+          paymentEntryId: editingExternalDebtPaymentEntryId || null
         };
 
         if (!payload.account || !payload.date || Number.isNaN(payload.amount) || payload.amount <= 0) {

@@ -458,6 +458,73 @@ async function commitBatch(operations) {
   touchedCollections.forEach(collectionName => markCollectionCache(collectionName, commitTime));
 }
 
+function getLinkedPurchaseCardPayments(compraId, paymentEntryId) {
+  return pagos.filter(payment => String(payment.sourceModule || '') === 'compras'
+    && String(payment.sourceRecordId || '') === String(compraId)
+    && String(payment.sourcePaymentEntryId || '') === String(paymentEntryId));
+}
+
+function syncPurchaseCardPendingPaymentOperations(compra, paymentEntry, operations) {
+  if (!compra || !paymentEntry || !Array.isArray(operations)) {
+    return;
+  }
+
+  const linkedPayments = getLinkedPurchaseCardPayments(compra.id, paymentEntry.id);
+  const normalizedMethod = String(paymentEntry.paymentMethod || '').trim().toLowerCase();
+
+  if (normalizedMethod !== 'tarjeta') {
+    linkedPayments.forEach(payment => {
+      const paymentId = String(payment.id || '');
+      pagos = pagos.filter(entry => String(entry.id || '') !== paymentId);
+      operations.push({ type: 'delete', collection: COLLECTIONS.pagos, id: paymentId });
+    });
+    return;
+  }
+
+  const existingPayment = linkedPayments[0] || null;
+  const now = new Date().toISOString();
+  const linkedPayment = {
+    ...(existingPayment || {}),
+    id: existingPayment?.id || createDocId(COLLECTIONS.pagos),
+    descripcion: compra.documento || 'Compra',
+    beneficiario: compra.proveedor || null,
+    categoriaId: existingPayment?.categoriaId || null,
+    categoriaNombre: existingPayment?.categoriaNombre || 'Compra',
+    monto: Number(paymentEntry.amount || 0),
+    fecha: paymentEntry.date || compra.fecha || now,
+    paymentMethod: 'tarjeta-credito',
+    referencia: paymentEntry.paymentReference || null,
+    receiptNumber: null,
+    receiptIssuedAt: null,
+    observacion: paymentEntry.note || null,
+    status: existingPayment?.reimbursedAt ? 'reembolsado' : 'pendiente-reembolso',
+    reimbursementMethod: existingPayment?.reimbursedAt ? (existingPayment.reimbursementMethod || 'transferencia') : 'transferencia',
+    reimbursementReference: existingPayment?.reimbursementReference || null,
+    reimbursedAt: existingPayment?.reimbursedAt || null,
+    sourceModule: 'compras',
+    sourceRecordId: String(compra.id || ''),
+    sourcePaymentEntryId: String(paymentEntry.id || ''),
+    sourceDocument: compra.documento || null,
+    createdAt: existingPayment?.createdAt || now,
+    updatedAt: now
+  };
+
+  const existingIndex = pagos.findIndex(payment => String(payment.id || '') === String(linkedPayment.id));
+  if (existingIndex >= 0) {
+    pagos[existingIndex] = linkedPayment;
+  } else {
+    pagos.push(linkedPayment);
+  }
+
+  operations.push({ type: 'set', collection: COLLECTIONS.pagos, id: linkedPayment.id, data: linkedPayment });
+
+  linkedPayments.slice(1).forEach(payment => {
+    const paymentId = String(payment.id || '');
+    pagos = pagos.filter(entry => String(entry.id || '') !== paymentId);
+    operations.push({ type: 'delete', collection: COLLECTIONS.pagos, id: paymentId });
+  });
+}
+
 function asyncHandler(handler) {
   return (req, res, next) => {
     Promise.resolve(handler(req, res, next)).catch(error => {
@@ -2510,12 +2577,20 @@ app.post("/compras", asyncHandler(async (req, res) => {
   };
   ensurePurchaseFinancialState(compra);
   compras.push(compra);
-  await commitBatch([
+  const purchaseOperations = [
     ...validatedItems.map(item => {
       const producto = productos.find(p => String(p.id) === String(item.id));
       return producto ? { type: 'set', collection: COLLECTIONS.productos, id: producto.id, data: producto } : null;
     }),
     { type: 'set', collection: COLLECTIONS.compras, id: compra.id, data: compra }
+  ];
+  if (normalizedPaymentType === 'contado') {
+    initialPaymentHistory.forEach(paymentEntry => {
+      syncPurchaseCardPendingPaymentOperations(compra, paymentEntry, purchaseOperations);
+    });
+  }
+  await commitBatch([
+    ...purchaseOperations
   ]);
   res.status(201).json({ message: "Compra registrada.", compra });
 }));
@@ -3011,36 +3086,52 @@ app.post("/compras/:id/pagar", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "La referencia es obligatoria para tarjeta o transferencia." });
   }
 
-  const receiptNumber = paymentMethod === 'efectivo'
-    ? buildNextOutgoingReceiptNumber()
-    : null;
-  const resolvedPaymentReference = paymentMethod === 'efectivo'
-    ? receiptNumber
-    : (paymentReference || null);
-
   ensurePurchaseFinancialState(compra);
   const totalAmount = Number(compra.totalAmount || calculatePurchaseInvoiceTotal(compra));
+  const existingPaymentHistory = Array.isArray(compra.paymentHistory) ? compra.paymentHistory : [];
+  const requestedPaymentEntryId = String(req.body?.paymentEntryId || '').trim();
+  const canEditSingleSettledCreditPayment = isCreditPurchase && Number(compra.balanceDue || 0) <= 0.0001 && existingPaymentHistory.length === 1;
+  const existingPayment = isCreditPurchase
+    ? (requestedPaymentEntryId
+      ? existingPaymentHistory.find(entry => String(entry.id) === requestedPaymentEntryId) || null
+      : (canEditSingleSettledCreditPayment ? existingPaymentHistory[0] : null))
+    : null;
   const paymentAmount = isCreditPurchase
     ? Number(req.body?.amount)
     : totalAmount;
+
+  if (requestedPaymentEntryId && isCreditPurchase && !existingPayment) {
+    return res.status(404).json({ error: "No se encontró el abono seleccionado para esta compra." });
+  }
 
   if (isCreditPurchase) {
     if (Number.isNaN(paymentAmount) || paymentAmount <= 0) {
       return res.status(400).json({ error: "El monto del abono debe ser mayor a cero." });
     }
-    if (paymentAmount - Number(compra.balanceDue || 0) > 0.0001) {
+    const maxAllowedAmount = existingPayment
+      ? Number(compra.balanceDue || 0) + Number(existingPayment.amount || 0)
+      : Number(compra.balanceDue || 0);
+    if (paymentAmount - maxAllowedAmount > 0.0001) {
       return res.status(400).json({ error: "El abono no puede ser mayor que el saldo pendiente." });
     }
   }
+
+  const receiptNumber = paymentMethod === 'efectivo'
+    ? (existingPayment?.receiptNumber || buildNextOutgoingReceiptNumber())
+    : null;
+  const resolvedPaymentReference = paymentMethod === 'efectivo'
+    ? receiptNumber
+    : (paymentReference || null);
 
   compra.originalPaymentType = originalPaymentType || (isCashPurchase ? 'contado' : 'credito');
   compra.paymentType = isCashPurchase ? 'contado' : 'credito';
   compra.cashOut = totalAmount;
   compra.cashReceived = totalAmount;
   compra.cashChange = 0;
+  const cashPurchasePaymentId = existingPaymentHistory[0]?.id || crypto.randomUUID();
   compra.paymentHistory = isCashPurchase
     ? [{
-      id: crypto.randomUUID(),
+      id: cashPurchasePaymentId,
       amount: totalAmount,
       date: paidAt.toISOString(),
       paymentMethod,
@@ -3050,6 +3141,21 @@ app.post("/compras/:id/pagar", asyncHandler(async (req, res) => {
       account: getAccountFromPaymentMethod(paymentMethod),
       createdAt: new Date().toISOString()
     }]
+    : existingPayment
+      ? existingPaymentHistory.map(entry => String(entry.id) === String(existingPayment.id)
+        ? {
+          id: existingPayment.id || crypto.randomUUID(),
+          amount: paymentAmount,
+          date: paidAt.toISOString(),
+          paymentMethod,
+          paymentReference: resolvedPaymentReference,
+          receiptNumber,
+          note: existingPayment.note || 'Abono a compra a crédito',
+          account: getAccountFromPaymentMethod(paymentMethod),
+          createdAt: existingPayment.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+        : entry)
     : [
       ...(Array.isArray(compra.paymentHistory) ? compra.paymentHistory : []),
       {
@@ -3066,11 +3172,22 @@ app.post("/compras/:id/pagar", asyncHandler(async (req, res) => {
     ];
 
   ensurePurchaseFinancialState(compra);
+  const purchaseOperations = [
+    { type: 'set', collection: COLLECTIONS.compras, id: compra.id, data: compra }
+  ];
+  const syncedPaymentEntries = Array.isArray(compra.paymentHistory) ? compra.paymentHistory : [];
+  syncedPaymentEntries.forEach(paymentEntry => {
+    syncPurchaseCardPendingPaymentOperations(compra, paymentEntry, purchaseOperations);
+  });
 
-  await saveRecord(COLLECTIONS.compras, compra);
+  await commitBatch(purchaseOperations);
   res.json({
     message: isCashPurchase
       ? "Pago actualizado correctamente."
+      : existingPayment
+        ? compra.balanceDue <= 0
+          ? "Abono actualizado y cuenta saldada correctamente."
+          : "Abono actualizado correctamente."
       : compra.balanceDue <= 0
         ? "Abono aplicado y cuenta saldada correctamente."
         : "Abono aplicado correctamente.",
@@ -3652,21 +3769,42 @@ app.post("/ventas/:id/pagar", asyncHandler(async (req, res) => {
 
   ensureSaleFinancialState(venta);
   const totalAmount = Number(venta.totalAmount || calculateSaleInvoiceTotal(venta));
+  const existingPaymentHistory = Array.isArray(venta.paymentHistory) ? venta.paymentHistory : [];
+  const requestedPaymentEntryId = String(req.body?.paymentEntryId || '').trim();
+  const canEditSingleSettledCreditPayment = isCreditSale && Number(venta.balanceDue || 0) <= 0.0001 && existingPaymentHistory.length === 1;
+  const existingPayment = isCreditSale
+    ? (requestedPaymentEntryId
+      ? existingPaymentHistory.find(entry => String(entry.id) === requestedPaymentEntryId) || null
+      : (canEditSingleSettledCreditPayment ? existingPaymentHistory[0] : null))
+    : null;
   const paymentAmount = isCreditSale
     ? Number(req.body?.amount)
     : totalAmount;
+
+  if (requestedPaymentEntryId && isCreditSale && !existingPayment) {
+    return res.status(404).json({ error: "No se encontró el abono seleccionado para esta venta." });
+  }
 
   if (isCreditSale) {
     if (Number.isNaN(paymentAmount) || paymentAmount <= 0) {
       return res.status(400).json({ error: "El monto del abono debe ser mayor a cero." });
     }
-    if (paymentAmount - Number(venta.balanceDue || 0) > 0.0001) {
+    const maxAllowedAmount = existingPayment
+      ? Number(venta.balanceDue || 0) + Number(existingPayment.amount || 0)
+      : Number(venta.balanceDue || 0);
+    if (paymentAmount - maxAllowedAmount > 0.0001) {
       return res.status(400).json({ error: "El abono no puede ser mayor que el saldo pendiente." });
     }
   }
 
   const currentCashReceived = Number(venta.cashReceived);
   const currentCashChange = Number(venta.cashChange);
+  const receiptNumber = paymentMethod === 'efectivo'
+    ? (existingPayment?.receiptNumber || buildNextOutgoingReceiptNumber())
+    : null;
+  const resolvedPaymentReference = paymentMethod === 'efectivo'
+    ? receiptNumber
+    : (paymentReference || null);
 
   venta.originalPaymentType = originalPaymentType || (isCashSale ? 'contado' : 'credito');
   venta.paymentType = isCashSale ? 'contado' : 'credito';
@@ -3678,11 +3816,27 @@ app.post("/ventas/:id/pagar", asyncHandler(async (req, res) => {
       amount: totalAmount,
       date: paidAt.toISOString(),
       paymentMethod,
-      paymentReference: paymentReference || null,
+      paymentReference: resolvedPaymentReference,
+      receiptNumber,
       note: 'Pago actualizado de venta de contado',
       account: getAccountFromPaymentMethod(paymentMethod),
       createdAt: new Date().toISOString()
     }]
+    : existingPayment
+      ? existingPaymentHistory.map(entry => String(entry.id) === String(existingPayment.id)
+        ? {
+          id: existingPayment.id || crypto.randomUUID(),
+          amount: paymentAmount,
+          date: paidAt.toISOString(),
+          paymentMethod,
+          paymentReference: resolvedPaymentReference,
+          receiptNumber,
+          note: existingPayment.note || 'Abono a venta a crédito',
+          account: getAccountFromPaymentMethod(paymentMethod),
+          createdAt: existingPayment.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+        : entry)
     : [
       ...(Array.isArray(venta.paymentHistory) ? venta.paymentHistory : []),
       {
@@ -3690,7 +3844,8 @@ app.post("/ventas/:id/pagar", asyncHandler(async (req, res) => {
         amount: paymentAmount,
         date: paidAt.toISOString(),
         paymentMethod,
-        paymentReference: paymentReference || null,
+        paymentReference: resolvedPaymentReference,
+        receiptNumber,
         note: 'Abono a venta a crédito',
         account: getAccountFromPaymentMethod(paymentMethod),
         createdAt: new Date().toISOString()
@@ -3703,6 +3858,10 @@ app.post("/ventas/:id/pagar", asyncHandler(async (req, res) => {
   res.json({
     message: isCashSale
       ? "Pago actualizado correctamente."
+      : existingPayment
+        ? venta.balanceDue <= 0
+          ? "Abono actualizado y cuenta saldada correctamente."
+          : "Abono actualizado correctamente."
       : venta.balanceDue <= 0
         ? "Abono aplicado y cuenta saldada correctamente."
         : "Abono aplicado correctamente.",
@@ -3829,6 +3988,11 @@ app.post("/deudas-externas/:id/abonos", asyncHandler(async (req, res) => {
   const account = normalizeFundAccount(req.body?.account);
   const paymentReference = String(req.body?.paymentReference || req.body?.referencia || '').trim();
   const note = String(req.body?.note || req.body?.observacion || '').trim();
+  const requestedPaymentEntryId = String(req.body?.paymentEntryId || '').trim();
+  const existingPaymentHistory = Array.isArray(debt.paymentHistory) ? debt.paymentHistory : [];
+  const existingPayment = requestedPaymentEntryId
+    ? existingPaymentHistory.find(entry => String(entry.id) === requestedPaymentEntryId) || null
+    : null;
 
   if (amount === null || amount <= 0) {
     return res.status(400).json({ error: "El monto del abono debe ser mayor a cero." });
@@ -3839,37 +4003,64 @@ app.post("/deudas-externas/:id/abonos", asyncHandler(async (req, res) => {
   if (!account) {
     return res.status(400).json({ error: "Selecciona si el abono se hizo por efectivo o bancos." });
   }
-  if (amount - Number(debt.balanceDue || 0) > 0.0001) {
+  if (requestedPaymentEntryId && !existingPayment) {
+    return res.status(404).json({ error: "No se encontró el abono seleccionado para esta deuda externa." });
+  }
+  const maxAllowedAmount = existingPayment
+    ? Number(debt.balanceDue || 0) + Number(existingPayment.amount || 0)
+    : Number(debt.balanceDue || 0);
+  if (amount - maxAllowedAmount > 0.0001) {
     return res.status(400).json({ error: "El abono no puede ser mayor que el saldo pendiente." });
   }
 
   const receiptNumber = account === 'efectivo'
-    ? buildNextOutgoingReceiptNumber()
+    ? (existingPayment?.receiptNumber || buildNextOutgoingReceiptNumber())
     : null;
   const resolvedPaymentReference = account === 'efectivo'
     ? receiptNumber
     : (paymentReference || null);
 
-  debt.paymentHistory = [
-    ...(Array.isArray(debt.paymentHistory) ? debt.paymentHistory : []),
-    {
-      id: crypto.randomUUID(),
-      amount,
-      date: fecha.toISOString(),
-      account,
-      paymentMethod: account === 'efectivo' ? 'efectivo' : 'transferencia',
-      paymentReference: resolvedPaymentReference,
-      receiptNumber,
-      note: note || null,
-      createdAt: new Date().toISOString()
-    }
-  ];
+  debt.paymentHistory = existingPayment
+    ? existingPaymentHistory.map(entry => String(entry.id) === String(existingPayment.id)
+      ? {
+        id: existingPayment.id || crypto.randomUUID(),
+        amount,
+        date: fecha.toISOString(),
+        account,
+        paymentMethod: account === 'efectivo' ? 'efectivo' : 'transferencia',
+        paymentReference: resolvedPaymentReference,
+        receiptNumber,
+        note: note || null,
+        createdAt: existingPayment.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+      : entry)
+    : [
+      ...existingPaymentHistory,
+      {
+        id: crypto.randomUUID(),
+        amount,
+        date: fecha.toISOString(),
+        account,
+        paymentMethod: account === 'efectivo' ? 'efectivo' : 'transferencia',
+        paymentReference: resolvedPaymentReference,
+        receiptNumber,
+        note: note || null,
+        createdAt: new Date().toISOString()
+      }
+    ];
   debt.updatedAt = new Date().toISOString();
   ensureExternalDebtFinancialState(debt);
 
   await saveRecord(COLLECTIONS.externalDebts, debt);
   res.json({
-    message: debt.balanceDue <= 0 ? 'Abono aplicado y deuda saldada correctamente.' : 'Abono aplicado correctamente.',
+    message: existingPayment
+      ? debt.balanceDue <= 0
+        ? 'Abono actualizado y deuda saldada correctamente.'
+        : 'Abono actualizado correctamente.'
+      : debt.balanceDue <= 0
+        ? 'Abono aplicado y deuda saldada correctamente.'
+        : 'Abono aplicado correctamente.',
     debt
   });
 }));
