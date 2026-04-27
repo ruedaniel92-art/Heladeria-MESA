@@ -76,6 +76,66 @@ function isBootstrapSecretRequired() {
   return isProductionEnvironment() || Boolean(getBootstrapSecret());
 }
 
+function normalizeOrigin(value) {
+  const rawValue = String(value || "").trim();
+  if (!rawValue) {
+    return "";
+  }
+
+  try {
+    const parsedUrl = new URL(rawValue.startsWith("http") ? rawValue : `https://${rawValue}`);
+    return parsedUrl.origin.toLowerCase();
+  } catch (error) {
+    return "";
+  }
+}
+
+function getConfiguredCorsOrigins() {
+  return String(process.env.APP_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map(normalizeOrigin)
+    .filter(Boolean);
+}
+
+function getRequestHostOrigin(req) {
+  const host = String(req.headers.host || "").trim();
+  if (!host) {
+    return "";
+  }
+  const protocol = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim()
+    || (isProductionEnvironment() ? "https" : "http");
+  return normalizeOrigin(`${protocol}://${host}`);
+}
+
+function isLocalDevelopmentOrigin(origin) {
+  try {
+    const parsedUrl = new URL(origin);
+    return ["localhost", "127.0.0.1", "::1"].includes(parsedUrl.hostname);
+  } catch (error) {
+    return false;
+  }
+}
+
+function getAllowedCorsOrigin(req) {
+  const requestOrigin = normalizeOrigin(req.headers.origin);
+  if (!requestOrigin) {
+    return "";
+  }
+
+  const allowedOrigins = new Set([
+    ...getConfiguredCorsOrigins(),
+    normalizeOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL),
+    normalizeOrigin(process.env.VERCEL_URL),
+    getRequestHostOrigin(req)
+  ].filter(Boolean));
+
+  if (!isProductionEnvironment() && isLocalDevelopmentOrigin(requestOrigin)) {
+    return requestOrigin;
+  }
+
+  return allowedOrigins.has(requestOrigin) ? requestOrigin : "";
+}
+
 const AUTH_TOKEN_DURATION_MS = 10 * 60 * 1000;
 const AUTH_PASSWORD_ITERATIONS = 210000;
 if (isProductionEnvironment() && !process.env.APP_AUTH_SECRET) {
@@ -121,14 +181,17 @@ app.use((err, req, res, next) => {
   return next(err);
 });
 
-// Permitir CORS desde el frontend local
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const allowedOrigin = getAllowedCorsOrigin(req);
+  if (allowedOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+    res.setHeader("Vary", "Origin");
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Access-Control-Expose-Headers", "X-Auth-Token");
   if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
+    return allowedOrigin ? res.sendStatus(204) : res.sendStatus(403);
   }
   next();
 });

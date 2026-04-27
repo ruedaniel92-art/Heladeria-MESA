@@ -160,6 +160,78 @@ const tests = [
     }
   },
   {
+    name: "cors permite el frontend local durante desarrollo",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const response = await fetch(`${baseUrl}/health`, {
+            headers: {
+              Origin: "http://localhost:5173"
+            }
+          });
+
+          assert.equal(response.status, 200);
+          assert.equal(response.headers.get("access-control-allow-origin"), "http://localhost:5173");
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
+    name: "cors permite origen configurado en producción",
+    async run() {
+      const { app, restore } = loadApp({
+        APP_ENV: "production",
+        APP_AUTH_SECRET: "production-auth-secret",
+        APP_ALLOWED_ORIGINS: "https://heladeria-mesa.vercel.app"
+      });
+
+      try {
+        await withServer(app, async baseUrl => {
+          const response = await fetch(`${baseUrl}/health`, {
+            headers: {
+              Origin: "https://heladeria-mesa.vercel.app"
+            }
+          });
+
+          assert.equal(response.status, 200);
+          assert.equal(response.headers.get("access-control-allow-origin"), "https://heladeria-mesa.vercel.app");
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
+    name: "cors bloquea preflight desde origen no permitido en producción",
+    async run() {
+      const { app, restore } = loadApp({
+        APP_ENV: "production",
+        APP_AUTH_SECRET: "production-auth-secret",
+        APP_ALLOWED_ORIGINS: "https://heladeria-mesa.vercel.app"
+      });
+
+      try {
+        await withServer(app, async baseUrl => {
+          const response = await fetch(`${baseUrl}/productos`, {
+            method: "OPTIONS",
+            headers: {
+              Origin: "https://sitio-raro.example",
+              "Access-Control-Request-Method": "GET"
+            }
+          });
+
+          assert.equal(response.status, 403);
+          assert.equal(response.headers.get("access-control-allow-origin"), null);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
     name: "bootstrap crea el primer administrador en entorno local sin clave extra",
     async run() {
       const { app, restore } = loadApp();
