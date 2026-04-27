@@ -535,6 +535,105 @@ const tests = [
         restore();
       }
     }
+  },
+  {
+    name: "abono de venta a crédito actualiza saldo tras la extracción",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nombre: "Admin Mesa",
+              username: "mesa-admin",
+              password: "secreto123"
+            })
+          });
+          assert.equal(bootstrapResponse.status, 201);
+          const bootstrapResult = await bootstrapResponse.json();
+          const token = bootstrapResult.token;
+
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              nombre: "Paleta",
+              tipo: "productos",
+              stockMin: 1,
+              precio: 15,
+              modoControl: "directo"
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productResult = await productResponse.json();
+          const productId = productResult.producto.id;
+
+          const initialInventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              productId,
+              quantity: 10,
+              unitCost: 6
+            })
+          });
+          assert.equal(initialInventoryResponse.status, 201);
+
+          const saleResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              cliente: "Cliente crédito",
+              fecha: "2026-04-27",
+              dueDate: "2026-05-01",
+              paymentType: "credito",
+              paymentMethod: "efectivo",
+              items: [
+                {
+                  id: productId,
+                  cantidad: 2,
+                  precio: 15
+                }
+              ]
+            })
+          });
+          assert.equal(saleResponse.status, 201);
+          const saleResult = await saleResponse.json();
+          assert.equal(saleResult.venta.balanceDue, 30);
+
+          const paymentResponse = await fetch(`${baseUrl}/ventas/${encodeURIComponent(saleResult.venta.id)}/pagar`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              amount: 10,
+              paymentMethod: "efectivo",
+              paidAt: "2026-04-28"
+            })
+          });
+          assert.equal(paymentResponse.status, 200);
+          const paymentResult = await paymentResponse.json();
+          assert.equal(paymentResult.venta.totalPaid, 10);
+          assert.equal(paymentResult.venta.balanceDue, 20);
+          assert.equal(paymentResult.venta.status, "abonada");
+        });
+      } finally {
+        restore();
+      }
+    }
   }
 ];
 
