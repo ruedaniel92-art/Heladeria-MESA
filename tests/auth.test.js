@@ -377,6 +377,72 @@ const tests = [
         restore();
       }
     }
+  },
+  {
+    name: "inventario inicial actualiza stock tras la extracción",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nombre: "Admin Mesa",
+              username: "mesa-admin",
+              password: "secreto123"
+            })
+          });
+          assert.equal(bootstrapResponse.status, 201);
+          const bootstrapResult = await bootstrapResponse.json();
+          const token = bootstrapResult.token;
+
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              nombre: "Conos",
+              tipo: "productos",
+              stockMin: 2,
+              precio: 5,
+              modoControl: "directo"
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productResult = await productResponse.json();
+
+          const initialInventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              productId: productResult.producto.id,
+              quantity: 12,
+              unitCost: 1.5
+            })
+          });
+          assert.equal(initialInventoryResponse.status, 201);
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario`, {
+            headers: {
+              "Authorization": `Bearer ${token}`
+            }
+          });
+          assert.equal(inventoryResponse.status, 200);
+          const inventory = await inventoryResponse.json();
+          assert.equal(inventory.totalProductos, 1);
+          assert.equal(inventory.totalStock, 12);
+          assert.equal(inventory.productos[0].stock, 12);
+        });
+      } finally {
+        restore();
+      }
+    }
   }
 ];
 
