@@ -443,6 +443,98 @@ const tests = [
         restore();
       }
     }
+  },
+  {
+    name: "venta de producto directo descuenta stock disponible",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nombre: "Admin Mesa",
+              username: "mesa-admin",
+              password: "secreto123"
+            })
+          });
+          assert.equal(bootstrapResponse.status, 201);
+          const bootstrapResult = await bootstrapResponse.json();
+          const token = bootstrapResult.token;
+
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              nombre: "Barquilla",
+              tipo: "productos",
+              stockMin: 2,
+              precio: 10,
+              modoControl: "directo"
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productResult = await productResponse.json();
+          const productId = productResult.producto.id;
+
+          const initialInventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              productId,
+              quantity: 12,
+              unitCost: 4
+            })
+          });
+          assert.equal(initialInventoryResponse.status, 201);
+
+          const saleResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              cliente: "Cliente prueba",
+              fecha: "2026-04-27",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 30,
+              items: [
+                {
+                  id: productId,
+                  cantidad: 3,
+                  precio: 10
+                }
+              ]
+            })
+          });
+          assert.equal(saleResponse.status, 201);
+          const saleResult = await saleResponse.json();
+          assert.equal(saleResult.venta.totalAmount, 30);
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario`, {
+            headers: {
+              "Authorization": `Bearer ${token}`
+            }
+          });
+          assert.equal(inventoryResponse.status, 200);
+          const inventory = await inventoryResponse.json();
+          const product = inventory.productos.find(item => String(item.id) === String(productId));
+          assert.equal(product.stock, 9);
+          assert.equal(inventory.totalStock, 9);
+        });
+      } finally {
+        restore();
+      }
+    }
   }
 ];
 
