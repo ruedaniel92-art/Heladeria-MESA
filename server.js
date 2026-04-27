@@ -4,6 +4,8 @@ const path = require("path");
 const db = require("./firebase");
 const app = express();
 
+app.disable("x-powered-by");
+
 const COLLECTIONS = {
   productos: "productos",
   compras: "compras",
@@ -52,9 +54,31 @@ function buildAuthSecretSeed() {
   return normalizedSeed || "heladeria-mesa-auth-secret";
 }
 
+function getNormalizedEnvironment() {
+  return String(process.env.APP_ENV || process.env.NODE_ENV || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isProductionEnvironment() {
+  const normalizedEnv = getNormalizedEnvironment();
+  if (normalizedEnv) {
+    return ["prod", "production", "produccion"].includes(normalizedEnv);
+  }
+  return process.env.VERCEL === "1";
+}
+
+function getBootstrapSecret() {
+  return String(process.env.APP_BOOTSTRAP_SECRET || "").trim();
+}
+
+function isBootstrapSecretRequired() {
+  return isProductionEnvironment() || Boolean(getBootstrapSecret());
+}
+
 const AUTH_TOKEN_DURATION_MS = 10 * 60 * 1000;
 const AUTH_PASSWORD_ITERATIONS = 210000;
-if (process.env.VERCEL === '1' && !process.env.APP_AUTH_SECRET) {
+if (isProductionEnvironment() && !process.env.APP_AUTH_SECRET) {
   throw new Error('APP_AUTH_SECRET es obligatorio en producción');
 }
 const AUTH_SECRET = process.env.APP_AUTH_SECRET
@@ -81,6 +105,14 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+app.use("/assets", express.static(path.join(__dirname, "assets")));
+
+app.use((req, res, next) => {
+  if (req.path.startsWith("/auth/")) {
+    res.setHeader("Cache-Control", "no-store");
+  }
+  next();
+});
 
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
@@ -1524,14 +1556,13 @@ function repairConsumableControls(kind) {
 }
 
 function getRuntimeEnvironmentInfo() {
-  const normalizedEnv = String(process.env.APP_ENV || '').trim().toLowerCase();
-  const isProduction = normalizedEnv
-    ? ['prod', 'production', 'produccion'].includes(normalizedEnv)
-    : process.env.VERCEL === '1';
+  const isProduction = isProductionEnvironment();
 
   return {
     mode: isProduction ? 'production' : 'test',
-    label: isProduction ? 'PRODUCCION' : 'PRUEBA'
+    label: isProduction ? 'PRODUCCION' : 'PRUEBA',
+    bootstrapSecretRequired: isBootstrapSecretRequired(),
+    bootstrapSecretConfigured: Boolean(getBootstrapSecret())
   };
 }
 
@@ -1543,16 +1574,51 @@ app.get(["/", "/index.html"], (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
+app.get("/favicon.ico", (req, res) => {
+  res.status(204).end();
+});
+
 app.get("/auth/status", asyncHandler(async (req, res) => {
+  await hydrateStore([COLLECTIONS.users]);
   const user = await attachAuthenticatedUser(req);
   attachAuthResponseHeaders(res, req.refreshedAuthToken);
-  res.json({ configured: users.length > 0, authenticated: Boolean(user), user: sanitizeUserForClient(user) });
+  res.json({
+    configured: users.length > 0,
+    authenticated: Boolean(user),
+    user: sanitizeUserForClient(user),
+    bootstrap: {
+      allowed: users.length === 0,
+      requiresSecret: isBootstrapSecretRequired(),
+      secretConfigured: Boolean(getBootstrapSecret())
+    }
+  });
 }));
 
 app.post("/auth/bootstrap", asyncHandler(async (req, res) => {
   await hydrateStore([COLLECTIONS.users]);
   if (users.length) {
     return res.status(409).json({ error: "La aplicación ya tiene usuarios configurados." });
+  }
+
+  const bootstrapSecret = getBootstrapSecret();
+  const providedBootstrapSecret = String(
+    req.headers["x-bootstrap-secret"]
+      || req.body?.bootstrapSecret
+      || ""
+  ).trim();
+
+  if (isBootstrapSecretRequired()) {
+    if (!bootstrapSecret) {
+      return res.status(503).json({
+        error: "El primer acceso está protegido. Configura APP_BOOTSTRAP_SECRET para crear el administrador inicial."
+      });
+    }
+
+    if (!isSafeEqual(providedBootstrapSecret, bootstrapSecret)) {
+      return res.status(403).json({
+        error: "Se requiere una clave de instalación válida para crear el primer administrador."
+      });
+    }
   }
 
   const username = normalizeUsername(req.body?.username);
@@ -4164,18 +4230,3 @@ if (require.main === module) {
     console.log(`Servidor en http://localhost:${port}`);
   });
 }
-
-app.get("/crear", asyncHandler(async (req, res) => {
-  const producto = {
-    id: createDocId(COLLECTIONS.productos),
-    nombre: "Helado de fresa",
-    precio: 3,
-    stock: 15,
-    tipo: 'producto terminado',
-    stockMin: 0
-  };
-
-  productos.push(producto);
-  await saveRecord(COLLECTIONS.productos, producto);
-  res.send("Producto creado desde navegador 🍦");
-}));
