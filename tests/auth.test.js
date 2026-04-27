@@ -313,6 +313,70 @@ const tests = [
         restore();
       }
     }
+  },
+  {
+    name: "catalogo de sabores funciona autenticado tras la extracción",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nombre: "Admin Mesa",
+              username: "mesa-admin",
+              password: "secreto123"
+            })
+          });
+          assert.equal(bootstrapResponse.status, 201);
+          const bootstrapResult = await bootstrapResponse.json();
+          const token = bootstrapResult.token;
+
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              nombre: "Base fresa",
+              tipo: "materia prima",
+              stockMin: 0,
+              medida: "balde",
+              rendimientoPorCompra: 20
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productResult = await productResponse.json();
+
+          const flavorResponse = await fetch(`${baseUrl}/sabores`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              nombre: "Fresa",
+              materiaPrimaId: productResult.producto.id
+            })
+          });
+          assert.equal(flavorResponse.status, 201);
+
+          const listResponse = await fetch(`${baseUrl}/sabores`, {
+            headers: {
+              "Authorization": `Bearer ${token}`
+            }
+          });
+          assert.equal(listResponse.status, 200);
+          const flavors = await listResponse.json();
+          assert.equal(flavors.length, 1);
+          assert.equal(flavors[0].nombre, "Fresa");
+        });
+      } finally {
+        restore();
+      }
+    }
   }
 ];
 

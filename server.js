@@ -7,6 +7,7 @@ const {
   DEFAULT_AUTH_PASSWORD_ITERATIONS,
   DEFAULT_AUTH_TOKEN_DURATION_MS
 } = require("./backend/auth");
+const { createFlavorCatalogHandlers } = require("./backend/flavors");
 const app = express();
 
 app.disable("x-powered-by");
@@ -1618,155 +1619,30 @@ app.post("/productos", asyncHandler(async (req, res) => {
   res.status(201).json({ message: "Producto creado.", producto });
 }));
 
-app.get("/sabores", asyncHandler(async (req, res) => {
-  await hydrateStore([COLLECTIONS.sabores]);
-  res.json(sabores);
-}));
+const { registerFlavorCatalogRoutes } = createFlavorCatalogHandlers({
+  app,
+  asyncHandler,
+  collections: COLLECTIONS,
+  createDocId,
+  deleteRecord,
+  getBaldesControl: () => baldesControl,
+  getProductos: () => productos,
+  getSalsas: () => salsas,
+  getSauceControls: () => sauceControls,
+  getSabores: () => sabores,
+  getToppingControls: () => toppingControls,
+  getToppings: () => toppings,
+  getVentas: () => ventas,
+  hydrateStore,
+  normalizeFlavorName,
+  normalizeProductType,
+  saveRecord,
+  setSalsas: value => { salsas = value; },
+  setSabores: value => { sabores = value; },
+  setToppings: value => { toppings = value; }
+});
 
-app.get("/toppings", asyncHandler(async (req, res) => {
-  await hydrateStore([COLLECTIONS.toppings]);
-  res.json(toppings);
-}));
-
-app.get("/salsas", asyncHandler(async (req, res) => {
-  await hydrateStore([COLLECTIONS.salsas]);
-  res.json(salsas);
-}));
-
-app.post("/sabores", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const normalizedName = normalizeFlavorName(req.body?.nombre);
-  const originalId = req.body?.originalId !== undefined && req.body?.originalId !== null ? String(req.body.originalId) : '';
-  const materiaPrimaId = req.body?.materiaPrimaId !== undefined && req.body?.materiaPrimaId !== null ? String(req.body.materiaPrimaId) : '';
-
-  if (!normalizedName) {
-    return res.status(400).json({ error: "El nombre del sabor es obligatorio." });
-  }
-
-  const materiaPrima = productos.find(producto => String(producto.id) === materiaPrimaId && normalizeProductType(producto.tipo || producto.type) === 'materia prima');
-  if (!materiaPrima) {
-    return res.status(400).json({ error: "Selecciona la materia prima del balde para este sabor." });
-  }
-
-  const duplicateFlavor = sabores.find(sabor => sabor.nombre.toLowerCase() === normalizedName.toLowerCase());
-  const editingFlavor = sabores.find(sabor => String(sabor.id) === originalId);
-
-  if (editingFlavor) {
-    if (duplicateFlavor && String(duplicateFlavor.id) !== String(editingFlavor.id)) {
-      return res.status(400).json({ error: "Ya existe un sabor con ese nombre." });
-    }
-    editingFlavor.nombre = normalizedName;
-    editingFlavor.materiaPrimaId = materiaPrima.id;
-    editingFlavor.materiaPrimaNombre = materiaPrima.nombre;
-    await saveRecord(COLLECTIONS.sabores, editingFlavor);
-    return res.status(200).json({ message: "Sabor actualizado.", sabor: editingFlavor });
-  }
-
-  if (duplicateFlavor) {
-    return res.status(400).json({ error: "Ya existe un sabor con ese nombre." });
-  }
-
-  const sabor = {
-    id: createDocId(COLLECTIONS.sabores),
-    nombre: normalizedName,
-    materiaPrimaId: materiaPrima.id,
-    materiaPrimaNombre: materiaPrima.nombre
-  };
-
-  sabores.push(sabor);
-  await saveRecord(COLLECTIONS.sabores, sabor);
-  res.status(201).json({ message: "Sabor creado.", sabor });
-}));
-
-app.post("/toppings", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const normalizedName = normalizeFlavorName(req.body?.nombre);
-  const originalId = req.body?.originalId !== undefined && req.body?.originalId !== null ? String(req.body.originalId) : '';
-  const materiaPrimaId = req.body?.materiaPrimaId !== undefined && req.body?.materiaPrimaId !== null ? String(req.body.materiaPrimaId) : '';
-
-  if (!normalizedName) {
-    return res.status(400).json({ error: "El nombre del topping es obligatorio." });
-  }
-
-  const materiaPrima = productos.find(producto => String(producto.id) === materiaPrimaId && normalizeProductType(producto.tipo || producto.type) === 'materia prima');
-  if (!materiaPrima) {
-    return res.status(400).json({ error: "Selecciona la materia prima del topping." });
-  }
-
-  const duplicateTopping = toppings.find(topping => topping.nombre.toLowerCase() === normalizedName.toLowerCase());
-  const editingTopping = toppings.find(topping => String(topping.id) === originalId);
-
-  if (editingTopping) {
-    if (duplicateTopping && String(duplicateTopping.id) !== String(editingTopping.id)) {
-      return res.status(400).json({ error: "Ya existe un topping con ese nombre." });
-    }
-    editingTopping.nombre = normalizedName;
-    editingTopping.materiaPrimaId = materiaPrima.id;
-    editingTopping.materiaPrimaNombre = materiaPrima.nombre;
-    await saveRecord(COLLECTIONS.toppings, editingTopping);
-    return res.status(200).json({ message: "Topping actualizado.", topping: editingTopping });
-  }
-
-  if (duplicateTopping) {
-    return res.status(400).json({ error: "Ya existe un topping con ese nombre." });
-  }
-
-  const topping = {
-    id: createDocId(COLLECTIONS.toppings),
-    nombre: normalizedName,
-    materiaPrimaId: materiaPrima.id,
-    materiaPrimaNombre: materiaPrima.nombre
-  };
-
-  toppings.push(topping);
-  await saveRecord(COLLECTIONS.toppings, topping);
-  res.status(201).json({ message: "Topping creado.", topping });
-}));
-
-app.post("/salsas", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const normalizedName = normalizeFlavorName(req.body?.nombre);
-  const originalId = req.body?.originalId !== undefined && req.body?.originalId !== null ? String(req.body.originalId) : '';
-  const materiaPrimaId = req.body?.materiaPrimaId !== undefined && req.body?.materiaPrimaId !== null ? String(req.body.materiaPrimaId) : '';
-
-  if (!normalizedName) {
-    return res.status(400).json({ error: "El nombre de la salsa/aderezo es obligatorio." });
-  }
-
-  const materiaPrima = productos.find(producto => String(producto.id) === materiaPrimaId && normalizeProductType(producto.tipo || producto.type) === 'materia prima');
-  if (!materiaPrima) {
-    return res.status(400).json({ error: "Selecciona la materia prima de la salsa/aderezo." });
-  }
-
-  const duplicateSauce = salsas.find(sauce => sauce.nombre.toLowerCase() === normalizedName.toLowerCase());
-  const editingSauce = salsas.find(sauce => String(sauce.id) === originalId);
-
-  if (editingSauce) {
-    if (duplicateSauce && String(duplicateSauce.id) !== String(editingSauce.id)) {
-      return res.status(400).json({ error: "Ya existe una salsa/aderezo con ese nombre." });
-    }
-    editingSauce.nombre = normalizedName;
-    editingSauce.materiaPrimaId = materiaPrima.id;
-    editingSauce.materiaPrimaNombre = materiaPrima.nombre;
-    await saveRecord(COLLECTIONS.salsas, editingSauce);
-    return res.status(200).json({ message: "Salsa/aderezo actualizado.", sauce: editingSauce });
-  }
-
-  if (duplicateSauce) {
-    return res.status(400).json({ error: "Ya existe una salsa/aderezo con ese nombre." });
-  }
-
-  const sauce = {
-    id: createDocId(COLLECTIONS.salsas),
-    nombre: normalizedName,
-    materiaPrimaId: materiaPrima.id,
-    materiaPrimaNombre: materiaPrima.nombre
-  };
-
-  salsas.push(sauce);
-  await saveRecord(COLLECTIONS.salsas, sauce);
-  res.status(201).json({ message: "Salsa/aderezo creado.", sauce });
-}));
+registerFlavorCatalogRoutes();
 
 app.get("/baldes-control", asyncHandler(async (req, res) => {
   await hydrateStore([COLLECTIONS.baldesControl]);
@@ -3863,62 +3739,7 @@ app.delete("/productos/:id", asyncHandler(async (req, res) => {
   res.json({ message: "Producto eliminado con éxito." });
 }));
 
-app.delete("/sabores/:id", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const { id } = req.params;
-  const sabor = sabores.find(item => String(item.id) === String(id));
-  if (!sabor) {
-    return res.status(404).json({ error: "Sabor no encontrado." });
-  }
 
-  const hasSales = ventas.some(venta => Array.isArray(venta.items) && venta.items.some(item => Array.isArray(item.sabores) && item.sabores.some(flavor => String(flavor.id) === String(id))));
-  const hasBucketControl = baldesControl.some(bucket => String(bucket.saborId) === String(id));
-  if (hasSales || hasBucketControl) {
-    return res.status(400).json({ error: "No se puede eliminar un sabor usado en ventas." });
-  }
-
-  sabores = sabores.filter(item => String(item.id) !== String(id));
-  await deleteRecord(COLLECTIONS.sabores, id);
-  res.json({ message: "Sabor eliminado con éxito." });
-}));
-
-app.delete("/toppings/:id", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const { id } = req.params;
-  const topping = toppings.find(item => String(item.id) === String(id));
-  if (!topping) {
-    return res.status(404).json({ error: "Topping no encontrado." });
-  }
-
-  const hasSales = ventas.some(venta => Array.isArray(venta.items) && venta.items.some(item => Array.isArray(item.adicionales) && item.adicionales.some(adicional => String(adicional.id) === String(id))));
-  const hasToppingControl = toppingControls.some(control => String(control.toppingId) === String(id));
-  if (hasSales || hasToppingControl) {
-    return res.status(400).json({ error: "No se puede eliminar un topping usado en ventas." });
-  }
-
-  toppings = toppings.filter(item => String(item.id) !== String(id));
-  await deleteRecord(COLLECTIONS.toppings, id);
-  res.json({ message: "Topping eliminado con éxito." });
-}));
-
-app.delete("/salsas/:id", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const { id } = req.params;
-  const sauce = salsas.find(item => String(item.id) === String(id));
-  if (!sauce) {
-    return res.status(404).json({ error: "Salsa/aderezo no encontrado." });
-  }
-
-  const hasSales = ventas.some(venta => Array.isArray(venta.items) && venta.items.some(item => Array.isArray(item.adicionales) && item.adicionales.some(adicional => String(adicional.id) === String(id))));
-  const hasSauceControl = sauceControls.some(control => String(control.sauceId) === String(id));
-  if (hasSales || hasSauceControl) {
-    return res.status(400).json({ error: "No se puede eliminar una salsa/aderezo usado en ventas." });
-  }
-
-  salsas = salsas.filter(item => String(item.id) !== String(id));
-  await deleteRecord(COLLECTIONS.salsas, id);
-  res.json({ message: "Salsa/aderezo eliminado con éxito." });
-}));
 
 // Resumen de inventario
 app.get("/inventario", asyncHandler(async (req, res) => {
