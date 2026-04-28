@@ -12,6 +12,7 @@ const { createFlavorCatalogHandlers } = require("./backend/flavors");
 const { createFundHandlers } = require("./backend/funds");
 const { createInventoryHandlers } = require("./backend/inventory");
 const { createPaymentHandlers } = require("./backend/payments");
+const { createProductHandlers } = require("./backend/products");
 const { createPurchaseHandlers } = require("./backend/purchases");
 const { createSalesHandlers } = require("./backend/sales");
 const app = express();
@@ -1507,124 +1508,32 @@ app.use((req, res, next) => {
   return requireAuth(req, res, next);
 });
 
-// Crear producto
-app.post("/productos", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const { nombre, precio, tipo, type, stockMin, medida, ingredientes, stock, originalId, originalName, controlSabores, rendimientoPorCompra, pelotasPorUnidad, modoControl, inventoryMode } = req.body;
-  const rawType = (tipo || type || '').trim();
-  const normalizedType = normalizeProductType(rawType);
-  let normalizedMode = normalizeInventoryMode(modoControl || inventoryMode);
-  const computedStockMin = !isNaN(Number(stockMin)) ? Number(stockMin) : (stock !== undefined ? Number(stock) : NaN);
-  const computedPrecio = normalizedType === 'materia prima' ? undefined : (!isNaN(Number(precio)) ? Number(precio) : NaN);
-  if (normalizedType === 'materia prima') {
-    normalizedMode = 'materia-prima';
+const { registerProductRoutes } = createProductHandlers({
+  app,
+  asyncHandler,
+  collections: COLLECTIONS,
+  createDocId,
+  deleteRecord,
+  findProductoByIdOrName,
+  getCompras: () => compras,
+  getInventoryMovements: () => inventoryMovements,
+  getProductos: () => productos,
+  getSalsas: () => salsas,
+  getSabores: () => sabores,
+  getToppings: () => toppings,
+  getVentas: () => ventas,
+  hydrateStore,
+  normalizeInventoryMode,
+  normalizeNonNegativeNumber,
+  normalizeProductType,
+  productIdentityKey,
+  saveRecord,
+  setProductos: value => {
+    productos = value;
   }
-  const shouldUseRecipe = normalizedMode === 'receta' || normalizedMode === 'mixto';
-  const shouldControlFlavors = normalizedMode === 'helado-sabores' || normalizedMode === 'mixto' || Boolean(controlSabores);
-  const computedYield = normalizedType === 'materia prima' ? normalizeNonNegativeNumber(rendimientoPorCompra) : 0;
-  const computedScoops = shouldControlFlavors ? Number(pelotasPorUnidad) : 0;
-  if (!nombre || typeof nombre !== "string" || !normalizedType || isNaN(computedStockMin) || (normalizedType !== 'materia prima' && isNaN(computedPrecio))) {
-    return res.status(400).json({ error: "Campos inválidos. nombre, tipo y stockMin son obligatorios. Precio de venta es obligatorio para producto terminado y productos." });
-  }
+});
 
-  if (normalizedType !== 'materia prima' && !normalizedMode) {
-    return res.status(400).json({ error: "Selecciona el modo de control del producto." });
-  }
-
-  if (normalizedMode === 'directo' && normalizedType !== 'productos') {
-    return res.status(400).json({ error: "Los productos de control directo deben registrarse como productos." });
-  }
-
-  if ((normalizedMode === 'receta' || normalizedMode === 'mixto') && normalizedType !== 'producto terminado') {
-    return res.status(400).json({ error: "Los productos con receta o mixtos deben registrarse como producto terminado." });
-  }
-
-  if (normalizedMode === 'helado-sabores' && normalizedType !== 'productos') {
-    return res.status(400).json({ error: "Los productos de helado por sabores deben registrarse como productos." });
-  }
-
-  if (normalizedType === "materia prima" && (!medida || typeof medida !== "string")) {
-    return res.status(400).json({ error: "Materia prima necesita una medición." });
-  }
-
-  if (normalizedType === "materia prima" && (Number.isNaN(computedYield) || computedYield <= 0)) {
-    return res.status(400).json({ error: "La materia prima debe indicar cuántas porciones rinde cada unidad comprada." });
-  }
-
-  if (shouldControlFlavors && (!Number.isInteger(computedScoops) || computedScoops <= 0)) {
-    return res.status(400).json({ error: "El producto con sabores debe indicar cuántas porciones o pelotas lleva por unidad." });
-  }
-
-  if (shouldUseRecipe) {
-    if (!Array.isArray(ingredientes) || ingredientes.length === 0) {
-      return res.status(400).json({ error: "Producto terminado necesita ingredientes." });
-    }
-    const invalidIngredient = ingredientes.find(ing => !ing || !ing.nombre || typeof ing.nombre !== "string" || isNaN(Number(ing.cantidad)) || Number(ing.cantidad) <= 0);
-    if (invalidIngredient) {
-      return res.status(400).json({ error: "Cada ingrediente debe tener nombre y cantidad válidos." });
-    }
-    const missingMateriaPrima = ingredientes.find(ing => {
-      const materia = (ing.id !== undefined && ing.id !== null)
-        ? productos.find(p => String(p.id) === String(ing.id))
-        : productos.find(p => p.nombre.toLowerCase() === ing.nombre.trim().toLowerCase());
-      const materiaTipo = String(materia?.tipo || materia?.type || '').trim().toLowerCase();
-      return !materia || materiaTipo !== "materia prima";
-    });
-    if (missingMateriaPrima) {
-      return res.status(400).json({ error: `La materia prima ${missingMateriaPrima.nombre} no está registrada.` });
-    }
-  }
-
-  const newProductData = {
-    id: null,
-    nombre: nombre.trim(),
-    precio: normalizedType === 'materia prima' ? undefined : computedPrecio,
-    tipo: normalizedType,
-    modoControl: normalizedMode,
-    stockMin: computedStockMin,
-    medida: normalizedType === "materia prima" ? medida : undefined,
-    ingredientes: shouldUseRecipe ? ingredientes : undefined,
-    controlSabores: shouldControlFlavors,
-    rendimientoPorCompra: normalizedType === "materia prima" ? computedYield : undefined,
-    pelotasPorUnidad: shouldControlFlavors ? computedScoops : undefined,
-    stock: 0
-  };
-
-  const newProductKey = productIdentityKey(newProductData);
-  const exactDuplicate = productos.find(p => productIdentityKey(p) === newProductKey);
-  const editingProduct = findProductoByIdOrName({ id: originalId, nombre: originalName });
-
-  if (editingProduct) {
-    if (exactDuplicate && String(exactDuplicate.id) !== String(editingProduct.id)) {
-      return res.status(400).json({ error: "Ya existe un producto idéntico con las mismas características." });
-    }
-    editingProduct.nombre = newProductData.nombre;
-    editingProduct.precio = newProductData.precio;
-    editingProduct.tipo = newProductData.tipo;
-    editingProduct.modoControl = newProductData.modoControl;
-    editingProduct.stockMin = newProductData.stockMin;
-    editingProduct.medida = newProductData.medida;
-    editingProduct.ingredientes = newProductData.ingredientes;
-    editingProduct.controlSabores = newProductData.controlSabores;
-    editingProduct.rendimientoPorCompra = newProductData.rendimientoPorCompra;
-    editingProduct.pelotasPorUnidad = newProductData.pelotasPorUnidad;
-    await saveRecord(COLLECTIONS.productos, editingProduct);
-    return res.status(200).json({ message: "Producto actualizado.", producto: editingProduct });
-  }
-
-  if (exactDuplicate) {
-    return res.status(400).json({ error: "Ya existe un producto idéntico con las mismas características." });
-  }
-
-  const producto = {
-    ...newProductData,
-    id: createDocId(COLLECTIONS.productos)
-  };
-  productos.push(producto);
-  await saveRecord(COLLECTIONS.productos, producto);
-  res.status(201).json({ message: "Producto creado.", producto });
-}));
-
+registerProductRoutes();
 const { registerFlavorCatalogRoutes } = createFlavorCatalogHandlers({
   app,
   asyncHandler,
@@ -2050,12 +1959,6 @@ app.post("/controles/reparar-historico", asyncHandler(async (req, res) => {
   });
 }));
 
-// Ver productos
-app.get("/productos", asyncHandler(async (req, res) => {
-  await hydrateStore([COLLECTIONS.productos]);
-  res.json(productos);
-}));
-
 const { registerPurchaseRoutes } = createPurchaseHandlers({
   app,
   asyncHandler,
@@ -2179,29 +2082,6 @@ const { registerDebtRoutes } = createDebtHandlers({
 });
 
 registerDebtRoutes();
-// Eliminar producto si no tiene movimientos vinculados
-app.delete("/productos/:id", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const { id } = req.params;
-  const producto = productos.find(p => String(p.id) === String(id));
-  if (!producto) {
-    return res.status(404).json({ error: "Producto no encontrado." });
-  }
-
-  const hasPurchase = compras.some(compra => Array.isArray(compra.items) && compra.items.some(item => String(item.id) === String(id)));
-  const hasSale = ventas.some(venta => Array.isArray(venta.items) && venta.items.some(item => String(item.id) === String(id) || (Array.isArray(item.sabores) && item.sabores.some(flavor => String(flavor.materiaPrimaId) === String(id))) || (Array.isArray(item.adicionales) && item.adicionales.some(adicional => String(adicional.materiaPrimaId) === String(id)))));
-  const hasInventoryMovement = inventoryMovements.some(movement => String(movement.productoId) === String(id));
-  const linkedFlavor = sabores.some(flavor => String(flavor.materiaPrimaId) === String(id));
-  const linkedTopping = toppings.some(topping => String(topping.materiaPrimaId) === String(id));
-  const linkedSauce = salsas.some(sauce => String(sauce.materiaPrimaId) === String(id));
-  if (hasPurchase || hasSale || hasInventoryMovement || linkedFlavor || linkedTopping || linkedSauce) {
-    return res.status(400).json({ error: "No se puede eliminar un producto con movimientos vinculados." });
-  }
-
-  productos = productos.filter(p => String(p.id) !== String(id));
-  await deleteRecord(COLLECTIONS.productos, id);
-  res.json({ message: "Producto eliminado con éxito." });
-}));
 
 
 
@@ -2216,6 +2096,8 @@ if (require.main === module) {
     console.log(`Servidor en http://localhost:${port}`);
   });
 }
+
+
 
 
 

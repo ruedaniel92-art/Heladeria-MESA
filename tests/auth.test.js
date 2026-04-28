@@ -1011,6 +1011,74 @@ const tests = [
         restore();
       }
     }
+  },
+  {
+    name: "producto se crea lista y elimina tras la extraccion",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nombre: "Admin Mesa",
+              username: "mesa-admin",
+              password: "secreto123"
+            })
+          });
+          assert.equal(bootstrapResponse.status, 201);
+          const bootstrapResult = await bootstrapResponse.json();
+          const token = bootstrapResult.token;
+
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              nombre: "Vaso prueba",
+              tipo: "productos",
+              stockMin: 1,
+              precio: 8,
+              modoControl: "directo"
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productResult = await productResponse.json();
+          const productId = productResult.producto.id;
+
+          const listResponse = await fetch(`${baseUrl}/productos`, {
+            headers: {
+              "Authorization": `Bearer ${token}`
+            }
+          });
+          assert.equal(listResponse.status, 200);
+          const products = await listResponse.json();
+          assert.ok(products.some(product => String(product.id) === String(productId)));
+
+          const deleteResponse = await fetch(`${baseUrl}/productos/${encodeURIComponent(productId)}`, {
+            method: "DELETE",
+            headers: {
+              "Authorization": `Bearer ${token}`
+            }
+          });
+          assert.equal(deleteResponse.status, 200);
+
+          const nextListResponse = await fetch(`${baseUrl}/productos`, {
+            headers: {
+              "Authorization": `Bearer ${token}`
+            }
+          });
+          assert.equal(nextListResponse.status, 200);
+          const nextProducts = await nextListResponse.json();
+          assert.equal(nextProducts.some(product => String(product.id) === String(productId)), false);
+        });
+      } finally {
+        restore();
+      }
+    }
   }
 ];
 
