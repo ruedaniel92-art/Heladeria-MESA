@@ -7518,6 +7518,10 @@
         return 'Sesión expirada';
       }
 
+      if (response.status === 403) {
+        return 'No tienes permiso para realizar esta accion. Pide a un administrador que revise tus accesos.';
+      }
+
       let parsedMessage = '';
       const rawText = await response.text();
       if (rawText) {
@@ -8939,6 +8943,7 @@
     resetInventoryMovementForms();
     bindMoneyNormalization();
     initializeAuthentication();
+
 
 
 
