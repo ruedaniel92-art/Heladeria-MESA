@@ -800,6 +800,82 @@ const tests = [
         restore();
       }
     }
+  },
+  {
+    name: "pago con tarjeta queda pendiente y puede reembolsarse tras la extraccion",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nombre: "Admin Mesa",
+              username: "mesa-admin",
+              password: "secreto123"
+            })
+          });
+          assert.equal(bootstrapResponse.status, 201);
+          const bootstrapResult = await bootstrapResponse.json();
+          const token = bootstrapResult.token;
+
+          const categoryResponse = await fetch(`${baseUrl}/pagos-categorias`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              nombre: "Servicios",
+              descripcion: "Pagos operativos"
+            })
+          });
+          assert.equal(categoryResponse.status, 201);
+          const categoryResult = await categoryResponse.json();
+          const categoryId = categoryResult.category.id;
+
+          const paymentResponse = await fetch(`${baseUrl}/pagos`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              descripcion: "Internet",
+              beneficiario: "Proveedor internet",
+              categoriaId: categoryId,
+              monto: 35,
+              fecha: "2026-04-27",
+              paymentMethod: "tarjeta-credito",
+              referencia: "TC-001"
+            })
+          });
+          assert.equal(paymentResponse.status, 201);
+          const paymentResult = await paymentResponse.json();
+          assert.equal(paymentResult.payment.status, "pendiente-reembolso");
+          assert.equal(paymentResult.payment.reimbursementMethod, "transferencia");
+
+          const reimbursementResponse = await fetch(`${baseUrl}/pagos/${encodeURIComponent(paymentResult.payment.id)}/reembolsar`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              reimbursementReference: "TR-001",
+              reimbursedAt: "2026-04-28"
+            })
+          });
+          assert.equal(reimbursementResponse.status, 200);
+          const reimbursementResult = await reimbursementResponse.json();
+          assert.equal(reimbursementResult.payment.status, "reembolsado");
+          assert.equal(reimbursementResult.payment.reimbursementReference, "TR-001");
+        });
+      } finally {
+        restore();
+      }
+    }
   }
 ];
 
