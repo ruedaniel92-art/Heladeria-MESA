@@ -3,6 +3,8 @@ node_modules/
 .vercel/
 *.log
 .smoke-server.pid
+bucket-*-response.json
+bucket-*.out.json
 *firebase-adminsdk*.json
 serviceAccountKey.json
 .vercel
