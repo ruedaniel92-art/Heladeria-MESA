@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node tests/auth.test.js"
+    "test": "node tests/run-tests.js"
   },
   "keywords": [],
   "author": "",

@@ -1087,7 +1087,11 @@ async function main() {
   console.log(`OK ${passed}/${tests.length} pruebas`);
 }
 
-main();
+if (require.main === module) {
+  main();
+} else {
+  module.exports = tests;
+}
 
 
 
