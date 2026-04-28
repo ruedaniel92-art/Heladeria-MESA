@@ -371,8 +371,8 @@ export function createSalesComposerModule(context) {
           ? formatCurrency(addonsTotal)
           : 'sin cambios';
       flavorToggleButton.textContent = isOpen ? '×' : '⚙';
-      flavorToggleButton.title = isOpen ? 'Cerrar personalizacion' : `Abrir personalizacion${detail ? `: ${detail}` : ''}`;
-      flavorToggleButton.setAttribute('aria-label', isOpen ? 'Cerrar personalizacion' : 'Abrir personalizacion');
+      flavorToggleButton.title = isOpen ? 'Cerrar personalización' : `Abrir personalización${detail ? `: ${detail}` : ''}`;
+      flavorToggleButton.setAttribute('aria-label', isOpen ? 'Cerrar personalización' : 'Abrir personalización');
       flavorToggleButton.classList.toggle('is-active', isOpen);
     }
   }
@@ -982,7 +982,7 @@ export function createSalesComposerModule(context) {
     const assignedScoops = productRows.reduce((sum, row) => sum + getSaleLineSelectedFlavors(row).reduce((rowSum, flavor) => rowSum + Number(flavor.porciones || 0), 0), 0);
     const modalAddonsTotal = productRows.reduce((sum, row) => sum + calculateSaleAddonsTotal(getSaleLineAddons(row)), 0);
     const extraLinesTotal = extraRows.reduce((sum, row) => sum + calculateSaleLineTotal(row), 0);
-    saleInfo.innerHTML = `<strong>${rows.length} lineas</strong> · Productos: ${productRows.length}${extraRows.length ? ` · Extras: ${extraRows.length}` : ''} · Total estimado: ${formattedTotal}${modalAddonsTotal || extraLinesTotal ? ` · Adicionales: ${formatCurrency(modalAddonsTotal + extraLinesTotal)}` : ''}${expectedScoops ? ` · Pelotas asignadas: ${assignedScoops}/${expectedScoops}` : ''}`;
+    saleInfo.innerHTML = `<strong>${rows.length} líneas</strong> · Productos: ${productRows.length}${extraRows.length ? ` · Extras: ${extraRows.length}` : ''} · Total estimado: ${formattedTotal}${modalAddonsTotal || extraLinesTotal ? ` · Adicionales: ${formatCurrency(modalAddonsTotal + extraLinesTotal)}` : ''}${expectedScoops ? ` · Pelotas asignadas: ${assignedScoops}/${expectedScoops}` : ''}`;
     saleTotal.textContent = formattedTotal;
     updateSaleCashReconciliation();
   }

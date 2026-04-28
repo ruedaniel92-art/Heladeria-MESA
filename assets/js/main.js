@@ -725,7 +725,7 @@
     let resetPaymentFormEditing = () => {};
     let resetExternalDebtFormEditing = () => {};
     let updatePaymentMethodSection = () => {};
-    let getPaymentCategoryName = () => 'Sin clasificacion';
+    let getPaymentCategoryName = () => 'Sin clasificación';
     let isExpensePayment = () => false;
     let getNormalizedFundSettings = () => getDefaultFundSettings();
     let getFundMovementModuleLabel = () => 'Movimiento';
@@ -4084,8 +4084,8 @@
       const editingSalePaymentEntryId = getEditingSalePaymentEntryId();
 
       if (!payingSaleId) {
-        setSalePayableStatus('No se encontr? la cuenta por cobrar seleccionada.', { error: true });
-        showError('No se encontr? la cuenta por cobrar seleccionada.');
+        setSalePayableStatus('No se encontró la cuenta por cobrar seleccionada.', { error: true });
+        showError('No se encontró la cuenta por cobrar seleccionada.');
         return;
       }
 

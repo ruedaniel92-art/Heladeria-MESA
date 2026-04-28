@@ -216,9 +216,9 @@ export function createPurchasesModule(context) {
       });
     });
     setPurchasePayableStatus(isViewOnly
-      ? 'Esta cuenta ya esta saldada. Aqui puedes consultar su estado de cuenta.'
+      ? 'Esta cuenta ya está saldada. Aquí puedes consultar su estado de cuenta.'
       : isEditingPayment
-        ? 'Corrige el metodo, la referencia o la fecha del pago registrado.'
+        ? 'Corrige el método, la referencia o la fecha del pago registrado.'
         : 'Confirma el monto, el metodo y la fecha del abono.');
     purchasePayableModal.classList.remove('field-hidden');
     purchasePayableModal.setAttribute('aria-hidden', 'false');
