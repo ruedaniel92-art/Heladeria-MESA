@@ -890,6 +890,181 @@ const tests = [
         restore();
       }
     }
+  },
+  {
+    name: "producto duplicado se rechaza para evitar registros escondidos",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+          const payload = {
+            nombre: "Cuchara prueba",
+            tipo: "productos",
+            stockMin: 1,
+            precio: 2,
+            modoControl: "directo"
+          };
+
+          const firstResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify(payload)
+          });
+          assert.equal(firstResponse.status, 201);
+
+          const duplicateResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify(payload)
+          });
+          assert.equal(duplicateResponse.status, 400);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
+    name: "pago por transferencia sin referencia se rechaza",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+          const categoryResponse = await fetch(`${baseUrl}/pagos-categorias`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({ nombre: "Servicios" })
+          });
+          assert.equal(categoryResponse.status, 201);
+          const categoryResult = await categoryResponse.json();
+
+          const paymentResponse = await fetch(`${baseUrl}/pagos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              descripcion: "Servicio sin referencia",
+              categoriaId: categoryResult.category.id,
+              monto: 12,
+              fecha: "2026-04-28",
+              paymentMethod: "transferencia"
+            })
+          });
+          assert.equal(paymentResponse.status, 400);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
+    name: "abono mayor al saldo de venta se rechaza",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Helado mini",
+              tipo: "productos",
+              stockMin: 1,
+              precio: 10,
+              modoControl: "directo"
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productResult = await productResponse.json();
+          const productId = productResult.producto.id;
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              productId,
+              quantity: 5,
+              unitCost: 4
+            })
+          });
+          assert.equal(inventoryResponse.status, 201);
+
+          const saleResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              cliente: "Cliente saldo",
+              fecha: "2026-04-28",
+              dueDate: "2026-05-02",
+              paymentType: "credito",
+              paymentMethod: "efectivo",
+              items: [{ id: productId, cantidad: 1, precio: 10 }]
+            })
+          });
+          assert.equal(saleResponse.status, 201);
+          const saleResult = await saleResponse.json();
+
+          const paymentResponse = await fetch(`${baseUrl}/ventas/${encodeURIComponent(saleResult.venta.id)}/pagar`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              amount: 11,
+              paymentMethod: "efectivo",
+              paidAt: "2026-04-29"
+            })
+          });
+          assert.equal(paymentResponse.status, 400);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
+    name: "producto con movimiento de inventario no se puede eliminar",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Envase con movimiento",
+              tipo: "productos",
+              stockMin: 1,
+              precio: 3,
+              modoControl: "directo"
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productResult = await productResponse.json();
+          const productId = productResult.producto.id;
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              productId,
+              quantity: 1,
+              unitCost: 1
+            })
+          });
+          assert.equal(inventoryResponse.status, 201);
+
+          const deleteResponse = await fetch(`${baseUrl}/productos/${encodeURIComponent(productId)}`, {
+            method: "DELETE",
+            headers: authHeaders(token)
+          });
+          assert.equal(deleteResponse.status, 400);
+        });
+      } finally {
+        restore();
+      }
+    }
   }
 ];
 
