@@ -123,6 +123,34 @@ async function withServer(app, callback) {
   }
 }
 
+async function bootstrapAdmin(baseUrl) {
+  const response = await fetch(`${baseUrl}/auth/bootstrap`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      nombre: "Admin Mesa",
+      username: "mesa-admin",
+      password: "secreto123"
+    })
+  });
+  assert.equal(response.status, 201);
+  const result = await response.json();
+  return result.token;
+}
+
+function authHeaders(token) {
+  return {
+    "Authorization": `Bearer ${token}`
+  };
+}
+
+function jsonAuthHeaders(token) {
+  return {
+    ...authHeaders(token),
+    "Content-Type": "application/json"
+  };
+}
+
 const tests = [
   {
     name: "health expone el estado del entorno",
@@ -320,25 +348,11 @@ const tests = [
       const { app, restore } = loadApp();
       try {
         await withServer(app, async baseUrl => {
-          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nombre: "Admin Mesa",
-              username: "mesa-admin",
-              password: "secreto123"
-            })
-          });
-          assert.equal(bootstrapResponse.status, 201);
-          const bootstrapResult = await bootstrapResponse.json();
-          const token = bootstrapResult.token;
+          const token = await bootstrapAdmin(baseUrl);
 
           const productResponse = await fetch(`${baseUrl}/productos`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               nombre: "Base fresa",
               tipo: "materia prima",
@@ -352,10 +366,7 @@ const tests = [
 
           const flavorResponse = await fetch(`${baseUrl}/sabores`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               nombre: "Fresa",
               materiaPrimaId: productResult.producto.id
@@ -364,9 +375,7 @@ const tests = [
           assert.equal(flavorResponse.status, 201);
 
           const listResponse = await fetch(`${baseUrl}/sabores`, {
-            headers: {
-              "Authorization": `Bearer ${token}`
-            }
+            headers: authHeaders(token)
           });
           assert.equal(listResponse.status, 200);
           const flavors = await listResponse.json();
@@ -384,25 +393,11 @@ const tests = [
       const { app, restore } = loadApp();
       try {
         await withServer(app, async baseUrl => {
-          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nombre: "Admin Mesa",
-              username: "mesa-admin",
-              password: "secreto123"
-            })
-          });
-          assert.equal(bootstrapResponse.status, 201);
-          const bootstrapResult = await bootstrapResponse.json();
-          const token = bootstrapResult.token;
+          const token = await bootstrapAdmin(baseUrl);
 
           const productResponse = await fetch(`${baseUrl}/productos`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               nombre: "Conos",
               tipo: "productos",
@@ -416,10 +411,7 @@ const tests = [
 
           const initialInventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               productId: productResult.producto.id,
               quantity: 12,
@@ -429,9 +421,7 @@ const tests = [
           assert.equal(initialInventoryResponse.status, 201);
 
           const inventoryResponse = await fetch(`${baseUrl}/inventario`, {
-            headers: {
-              "Authorization": `Bearer ${token}`
-            }
+            headers: authHeaders(token)
           });
           assert.equal(inventoryResponse.status, 200);
           const inventory = await inventoryResponse.json();
@@ -450,25 +440,11 @@ const tests = [
       const { app, restore } = loadApp();
       try {
         await withServer(app, async baseUrl => {
-          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nombre: "Admin Mesa",
-              username: "mesa-admin",
-              password: "secreto123"
-            })
-          });
-          assert.equal(bootstrapResponse.status, 201);
-          const bootstrapResult = await bootstrapResponse.json();
-          const token = bootstrapResult.token;
+          const token = await bootstrapAdmin(baseUrl);
 
           const productResponse = await fetch(`${baseUrl}/productos`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               nombre: "Barquilla",
               tipo: "productos",
@@ -483,10 +459,7 @@ const tests = [
 
           const initialInventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               productId,
               quantity: 12,
@@ -497,10 +470,7 @@ const tests = [
 
           const saleResponse = await fetch(`${baseUrl}/ventas`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               cliente: "Cliente prueba",
               fecha: "2026-04-27",
@@ -521,9 +491,7 @@ const tests = [
           assert.equal(saleResult.venta.totalAmount, 30);
 
           const inventoryResponse = await fetch(`${baseUrl}/inventario`, {
-            headers: {
-              "Authorization": `Bearer ${token}`
-            }
+            headers: authHeaders(token)
           });
           assert.equal(inventoryResponse.status, 200);
           const inventory = await inventoryResponse.json();
@@ -542,25 +510,11 @@ const tests = [
       const { app, restore } = loadApp();
       try {
         await withServer(app, async baseUrl => {
-          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nombre: "Admin Mesa",
-              username: "mesa-admin",
-              password: "secreto123"
-            })
-          });
-          assert.equal(bootstrapResponse.status, 201);
-          const bootstrapResult = await bootstrapResponse.json();
-          const token = bootstrapResult.token;
+          const token = await bootstrapAdmin(baseUrl);
 
           const productResponse = await fetch(`${baseUrl}/productos`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               nombre: "Paleta",
               tipo: "productos",
@@ -575,10 +529,7 @@ const tests = [
 
           const initialInventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               productId,
               quantity: 10,
@@ -589,10 +540,7 @@ const tests = [
 
           const saleResponse = await fetch(`${baseUrl}/ventas`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               cliente: "Cliente crédito",
               fecha: "2026-04-27",
@@ -614,10 +562,7 @@ const tests = [
 
           const paymentResponse = await fetch(`${baseUrl}/ventas/${encodeURIComponent(saleResult.venta.id)}/pagar`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               amount: 10,
               paymentMethod: "efectivo",
@@ -641,25 +586,11 @@ const tests = [
       const { app, restore } = loadApp();
       try {
         await withServer(app, async baseUrl => {
-          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nombre: "Admin Mesa",
-              username: "mesa-admin",
-              password: "secreto123"
-            })
-          });
-          assert.equal(bootstrapResponse.status, 201);
-          const bootstrapResult = await bootstrapResponse.json();
-          const token = bootstrapResult.token;
+          const token = await bootstrapAdmin(baseUrl);
 
           const productResponse = await fetch(`${baseUrl}/productos`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               nombre: "Base vainilla",
               tipo: "materia prima",
@@ -674,10 +605,7 @@ const tests = [
 
           const purchaseResponse = await fetch(`${baseUrl}/compras`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               documento: "FC-001",
               proveedor: "Proveedor prueba",
@@ -700,9 +628,7 @@ const tests = [
           assert.equal(purchaseResult.compra.status, "pagada");
 
           const inventoryResponse = await fetch(`${baseUrl}/inventario`, {
-            headers: {
-              "Authorization": `Bearer ${token}`
-            }
+            headers: authHeaders(token)
           });
           assert.equal(inventoryResponse.status, 200);
           const inventory = await inventoryResponse.json();
@@ -720,25 +646,11 @@ const tests = [
       const { app, restore } = loadApp();
       try {
         await withServer(app, async baseUrl => {
-          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nombre: "Admin Mesa",
-              username: "mesa-admin",
-              password: "secreto123"
-            })
-          });
-          assert.equal(bootstrapResponse.status, 201);
-          const bootstrapResult = await bootstrapResponse.json();
-          const token = bootstrapResult.token;
+          const token = await bootstrapAdmin(baseUrl);
 
           const productResponse = await fetch(`${baseUrl}/productos`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               nombre: "Azucar",
               tipo: "materia prima",
@@ -753,10 +665,7 @@ const tests = [
 
           const purchaseResponse = await fetch(`${baseUrl}/compras`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               documento: "FC-002",
               proveedor: "Proveedor credito",
@@ -780,10 +689,7 @@ const tests = [
 
           const paymentResponse = await fetch(`${baseUrl}/compras/${encodeURIComponent(purchaseResult.compra.id)}/pagar`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               amount: 18,
               paymentMethod: "efectivo",
@@ -807,25 +713,11 @@ const tests = [
       const { app, restore } = loadApp();
       try {
         await withServer(app, async baseUrl => {
-          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nombre: "Admin Mesa",
-              username: "mesa-admin",
-              password: "secreto123"
-            })
-          });
-          assert.equal(bootstrapResponse.status, 201);
-          const bootstrapResult = await bootstrapResponse.json();
-          const token = bootstrapResult.token;
+          const token = await bootstrapAdmin(baseUrl);
 
           const categoryResponse = await fetch(`${baseUrl}/pagos-categorias`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               nombre: "Servicios",
               descripcion: "Pagos operativos"
@@ -837,10 +729,7 @@ const tests = [
 
           const paymentResponse = await fetch(`${baseUrl}/pagos`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               descripcion: "Internet",
               beneficiario: "Proveedor internet",
@@ -858,10 +747,7 @@ const tests = [
 
           const reimbursementResponse = await fetch(`${baseUrl}/pagos/${encodeURIComponent(paymentResult.payment.id)}/reembolsar`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               reimbursementReference: "TR-001",
               reimbursedAt: "2026-04-28"
@@ -883,25 +769,11 @@ const tests = [
       const { app, restore } = loadApp();
       try {
         await withServer(app, async baseUrl => {
-          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nombre: "Admin Mesa",
-              username: "mesa-admin",
-              password: "secreto123"
-            })
-          });
-          assert.equal(bootstrapResponse.status, 201);
-          const bootstrapResult = await bootstrapResponse.json();
-          const token = bootstrapResult.token;
+          const token = await bootstrapAdmin(baseUrl);
 
           const settingsResponse = await fetch(`${baseUrl}/efectivo/configuracion`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               openingCashBalance: 100,
               openingBankBalance: 250,
@@ -916,10 +788,7 @@ const tests = [
 
           const transferResponse = await fetch(`${baseUrl}/efectivo/traslados`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               fromAccount: "efectivo",
               toAccount: "banco",
@@ -935,9 +804,7 @@ const tests = [
           assert.equal(transferResult.transfer.amount, 40);
 
           const transfersResponse = await fetch(`${baseUrl}/efectivo/traslados`, {
-            headers: {
-              "Authorization": `Bearer ${token}`
-            }
+            headers: authHeaders(token)
           });
           assert.equal(transfersResponse.status, 200);
           const transfers = await transfersResponse.json();
@@ -955,25 +822,11 @@ const tests = [
       const { app, restore } = loadApp();
       try {
         await withServer(app, async baseUrl => {
-          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nombre: "Admin Mesa",
-              username: "mesa-admin",
-              password: "secreto123"
-            })
-          });
-          assert.equal(bootstrapResponse.status, 201);
-          const bootstrapResult = await bootstrapResponse.json();
-          const token = bootstrapResult.token;
+          const token = await bootstrapAdmin(baseUrl);
 
           const debtResponse = await fetch(`${baseUrl}/deudas-externas`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               tercero: "Proveedor externo",
               concepto: "Prestamo temporal",
@@ -990,10 +843,7 @@ const tests = [
 
           const paymentResponse = await fetch(`${baseUrl}/deudas-externas/${encodeURIComponent(debtResult.debt.id)}/abonos`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               amount: 45,
               account: "efectivo",
@@ -1018,25 +868,11 @@ const tests = [
       const { app, restore } = loadApp();
       try {
         await withServer(app, async baseUrl => {
-          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nombre: "Admin Mesa",
-              username: "mesa-admin",
-              password: "secreto123"
-            })
-          });
-          assert.equal(bootstrapResponse.status, 201);
-          const bootstrapResult = await bootstrapResponse.json();
-          const token = bootstrapResult.token;
+          const token = await bootstrapAdmin(baseUrl);
 
           const productResponse = await fetch(`${baseUrl}/productos`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               nombre: "Vaso prueba",
               tipo: "productos",
@@ -1050,9 +886,7 @@ const tests = [
           const productId = productResult.producto.id;
 
           const listResponse = await fetch(`${baseUrl}/productos`, {
-            headers: {
-              "Authorization": `Bearer ${token}`
-            }
+            headers: authHeaders(token)
           });
           assert.equal(listResponse.status, 200);
           const products = await listResponse.json();
@@ -1060,16 +894,12 @@ const tests = [
 
           const deleteResponse = await fetch(`${baseUrl}/productos/${encodeURIComponent(productId)}`, {
             method: "DELETE",
-            headers: {
-              "Authorization": `Bearer ${token}`
-            }
+            headers: authHeaders(token)
           });
           assert.equal(deleteResponse.status, 200);
 
           const nextListResponse = await fetch(`${baseUrl}/productos`, {
-            headers: {
-              "Authorization": `Bearer ${token}`
-            }
+            headers: authHeaders(token)
           });
           assert.equal(nextListResponse.status, 200);
           const nextProducts = await nextListResponse.json();
@@ -1086,25 +916,11 @@ const tests = [
       const { app, restore } = loadApp();
       try {
         await withServer(app, async baseUrl => {
-          const bootstrapResponse = await fetch(`${baseUrl}/auth/bootstrap`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nombre: "Admin Mesa",
-              username: "mesa-admin",
-              password: "secreto123"
-            })
-          });
-          assert.equal(bootstrapResponse.status, 201);
-          const bootstrapResult = await bootstrapResponse.json();
-          const token = bootstrapResult.token;
+          const token = await bootstrapAdmin(baseUrl);
 
           const productResponse = await fetch(`${baseUrl}/productos`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               nombre: "Base chocolate",
               tipo: "materia prima",
@@ -1119,10 +935,7 @@ const tests = [
 
           const flavorResponse = await fetch(`${baseUrl}/sabores`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               nombre: "Chocolate",
               materiaPrimaId: productId
@@ -1134,10 +947,7 @@ const tests = [
 
           const purchaseResponse = await fetch(`${baseUrl}/compras`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               documento: "FC-BALDE-001",
               proveedor: "Proveedor baldes",
@@ -1159,10 +969,7 @@ const tests = [
 
           const openResponse = await fetch(`${baseUrl}/baldes-control/abrir`, {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
+            headers: jsonAuthHeaders(token),
             body: JSON.stringify({
               saborId: flavorId,
               fechaApertura: "2026-04-28"
@@ -1174,9 +981,7 @@ const tests = [
           assert.equal(openResult.balde.estado, "abierto");
 
           const listResponse = await fetch(`${baseUrl}/baldes-control`, {
-            headers: {
-              "Authorization": `Bearer ${token}`
-            }
+            headers: authHeaders(token)
           });
           assert.equal(listResponse.status, 200);
           const controls = await listResponse.json();
@@ -1210,3 +1015,5 @@ async function main() {
 }
 
 main();
+
+
