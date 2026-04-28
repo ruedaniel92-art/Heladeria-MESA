@@ -7,6 +7,7 @@ const {
   DEFAULT_AUTH_PASSWORD_ITERATIONS,
   DEFAULT_AUTH_TOKEN_DURATION_MS
 } = require("./backend/auth");
+const { createControlHandlers } = require("./backend/controls");
 const { createDebtHandlers } = require("./backend/debts");
 const { createFlavorCatalogHandlers } = require("./backend/flavors");
 const { createFundHandlers } = require("./backend/funds");
@@ -1559,406 +1560,38 @@ const { registerFlavorCatalogRoutes } = createFlavorCatalogHandlers({
 
 registerFlavorCatalogRoutes();
 
-app.get("/baldes-control", asyncHandler(async (req, res) => {
-  await hydrateStore([COLLECTIONS.baldesControl]);
-  res.json(baldesControl.map(bucket => ensureConsumableControlSnapshot('bucket', bucket)));
-}));
+const { registerControlRoutes } = createControlHandlers({
+  app,
+  applyConsumableCostSnapshot,
+  applyFinalCostToSalesForControl,
+  asyncHandler,
+  collections: COLLECTIONS,
+  commitBatch,
+  createDocId,
+  ensureConsumableControlSnapshot,
+  getActiveBucketForFlavor,
+  getActiveSauceControlForSauce,
+  getActiveToppingControlForTopping,
+  getBaldesControl: () => baldesControl,
+  getFlavorAvailableStock,
+  getInventoryMovements: () => inventoryMovements,
+  getNextConsumableLayer,
+  getProductos: () => productos,
+  getSalsas: () => salsas,
+  getSauceAvailableStock,
+  getSauceControls: () => sauceControls,
+  getSabores: () => sabores,
+  getToppingAvailableStock,
+  getToppingControls: () => toppingControls,
+  getToppings: () => toppings,
+  getVentas: () => ventas,
+  hydrateStore,
+  removeConsumableCloseInventoryMovements,
+  repairConsumableControls,
+  saveRecord
+});
 
-app.post("/baldes-control/abrir", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const saborId = req.body?.saborId !== undefined && req.body?.saborId !== null ? String(req.body.saborId) : '';
-  const observacion = String(req.body?.observacion || '').trim();
-  const fechaApertura = req.body?.fechaApertura ? new Date(req.body.fechaApertura) : new Date();
-
-  if (!saborId) {
-    return res.status(400).json({ error: "Selecciona un sabor para abrir el balde." });
-  }
-
-  if (Number.isNaN(fechaApertura.getTime())) {
-    return res.status(400).json({ error: "La fecha de apertura no es válida." });
-  }
-
-  const sabor = sabores.find(item => String(item.id) === saborId);
-  if (!sabor) {
-    return res.status(404).json({ error: "Sabor no encontrado." });
-  }
-
-  if (getActiveBucketForFlavor(saborId)) {
-    return res.status(400).json({ error: "Ya hay un balde abierto para este sabor." });
-  }
-
-  const materiaPrima = productos.find(producto => String(producto.id) === String(sabor.materiaPrimaId));
-  if (!materiaPrima) {
-    return res.status(400).json({ error: "La materia prima vinculada al sabor no existe." });
-  }
-
-  const flavorAvailableStock = getFlavorAvailableStock(sabor.id);
-  if (Number.isNaN(flavorAvailableStock) || flavorAvailableStock <= 0) {
-    return res.status(400).json({ error: `No puedes abrir el balde de ${sabor.nombre} porque no hay compra disponible para ese sabor en ${materiaPrima.nombre}.` });
-  }
-
-  const assignedLayer = getNextConsumableLayer('bucket', sabor.id);
-  if (!assignedLayer) {
-    return res.status(400).json({ error: `No hay una unidad de compra disponible para abrir un nuevo balde de ${sabor.nombre}.` });
-  }
-
-  const bucket = {
-    id: createDocId(COLLECTIONS.baldesControl),
-    saborId: sabor.id,
-    saborNombre: sabor.nombre,
-    materiaPrimaId: sabor.materiaPrimaId,
-    materiaPrimaNombre: sabor.materiaPrimaNombre,
-    fechaApertura: fechaApertura.toISOString(),
-    fechaCierre: null,
-    estado: 'abierto',
-    porcionesVendidas: 0,
-    ventasAsociadas: 0,
-    observacionApertura: observacion || null,
-    observacionCierre: null,
-    rendimientoReal: null,
-    mermaReal: null,
-    costoPorcionFinal: null,
-    costoEstado: 'provisional'
-  };
-
-  applyConsumableCostSnapshot(bucket, assignedLayer);
-
-  baldesControl.push(bucket);
-  await saveRecord(COLLECTIONS.baldesControl, bucket);
-  res.status(201).json({ message: "Balde abierto correctamente.", balde: bucket });
-}));
-
-app.post("/baldes-control/:id/cerrar", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const { id } = req.params;
-  const bucket = baldesControl.find(item => String(item.id) === String(id));
-  if (!bucket) {
-    return res.status(404).json({ error: "Balde no encontrado." });
-  }
-
-  if (bucket.estado !== 'abierto') {
-    return res.status(400).json({ error: "El balde ya está cerrado." });
-  }
-
-  const observacion = String(req.body?.observacion || '').trim();
-  const fechaCierre = req.body?.fechaCierre ? new Date(req.body.fechaCierre) : new Date();
-  const rendimientoRealRaw = req.body?.rendimientoReal;
-  if (Number.isNaN(fechaCierre.getTime())) {
-    return res.status(400).json({ error: "La fecha de cierre no es válida." });
-  }
-
-  ensureConsumableControlSnapshot('bucket', bucket);
-  const rendimientoReal = rendimientoRealRaw === undefined || rendimientoRealRaw === null || rendimientoRealRaw === ''
-    ? Math.max(Number(bucket.rendimientoTeorico || 0), Number(bucket.porcionesVendidas || 0), 1)
-    : Number(rendimientoRealRaw);
-  if (Number.isNaN(rendimientoReal) || rendimientoReal <= 0) {
-    return res.status(400).json({ error: "El rendimiento real del balde debe ser mayor a cero." });
-  }
-  if (rendimientoReal < Number(bucket.porcionesVendidas || 0)) {
-    return res.status(400).json({ error: "El rendimiento real no puede ser menor que las porciones ya vendidas." });
-  }
-
-  bucket.estado = 'cerrado';
-  bucket.fechaCierre = fechaCierre.toISOString();
-  bucket.observacionCierre = observacion || null;
-  bucket.rendimientoReal = rendimientoReal;
-  bucket.mermaReal = Math.max(Number(bucket.rendimientoTeorico || 0) - rendimientoReal, 0);
-  bucket.costoPorcionFinal = rendimientoReal > 0 ? Number(bucket.costoAperturaTotal || 0) / rendimientoReal : 0;
-  bucket.costoEstado = 'final';
-
-  const affectedSales = applyFinalCostToSalesForControl('bucket', bucket);
-  const cleanupResult = removeConsumableCloseInventoryMovements('bucket', bucket);
-
-  await commitBatch([
-    { type: 'set', collection: COLLECTIONS.baldesControl, id: bucket.id, data: bucket },
-    ...(cleanupResult.affectedProduct ? [
-      { type: 'set', collection: COLLECTIONS.productos, id: cleanupResult.affectedProduct.id, data: cleanupResult.affectedProduct }
-    ] : []),
-    ...cleanupResult.removedMovements.map(movement => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id: movement.id })),
-    ...affectedSales.map(venta => ({ type: 'set', collection: COLLECTIONS.ventas, id: venta.id, data: venta }))
-  ]);
-  res.json({ message: "Balde cerrado correctamente y costo final aplicado a las ventas asociadas.", balde: bucket });
-}));
-
-app.get("/toppings-control", asyncHandler(async (req, res) => {
-  await hydrateStore([COLLECTIONS.toppingControls]);
-  res.json(toppingControls.map(control => ensureConsumableControlSnapshot('topping', control)));
-}));
-
-app.post("/toppings-control/abrir", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const toppingId = req.body?.toppingId !== undefined && req.body?.toppingId !== null ? String(req.body.toppingId) : '';
-  const observacion = String(req.body?.observacion || '').trim();
-  const fechaApertura = req.body?.fechaApertura ? new Date(req.body.fechaApertura) : new Date();
-
-  if (!toppingId) {
-    return res.status(400).json({ error: "Selecciona un topping para abrir el control." });
-  }
-
-  if (Number.isNaN(fechaApertura.getTime())) {
-    return res.status(400).json({ error: "La fecha de apertura no es válida." });
-  }
-
-  const topping = toppings.find(item => String(item.id) === toppingId);
-  if (!topping) {
-    return res.status(404).json({ error: "Topping no encontrado." });
-  }
-
-  if (getActiveToppingControlForTopping(toppingId)) {
-    return res.status(400).json({ error: "Ya hay un control abierto para este topping." });
-  }
-
-  const materiaPrima = productos.find(producto => String(producto.id) === String(topping.materiaPrimaId));
-  if (!materiaPrima) {
-    return res.status(400).json({ error: "La materia prima vinculada al topping no existe." });
-  }
-
-  const toppingAvailableStock = getToppingAvailableStock(topping.id);
-  if (Number.isNaN(toppingAvailableStock) || toppingAvailableStock <= 0) {
-    return res.status(400).json({ error: `No puedes abrir ${topping.nombre} porque no hay compra disponible para ese topping en ${materiaPrima.nombre}.` });
-  }
-
-  const assignedLayer = getNextConsumableLayer('topping', topping.id);
-  if (!assignedLayer) {
-    return res.status(400).json({ error: `No hay una unidad de compra disponible para abrir ${topping.nombre}.` });
-  }
-
-  const control = {
-    id: createDocId(COLLECTIONS.toppingControls),
-    toppingId: topping.id,
-    toppingNombre: topping.nombre,
-    materiaPrimaId: topping.materiaPrimaId,
-    materiaPrimaNombre: topping.materiaPrimaNombre,
-    fechaApertura: fechaApertura.toISOString(),
-    fechaCierre: null,
-    estado: 'abierto',
-    porcionesVendidas: 0,
-    ventasAsociadas: 0,
-    observacionApertura: observacion || null,
-    observacionCierre: null,
-    rendimientoReal: null,
-    mermaReal: null,
-    costoPorcionFinal: null,
-    costoEstado: 'provisional'
-  };
-
-  applyConsumableCostSnapshot(control, assignedLayer);
-
-  toppingControls.push(control);
-  await saveRecord(COLLECTIONS.toppingControls, control);
-  res.status(201).json({ message: "Control de topping abierto correctamente.", control });
-}));
-
-app.post("/toppings-control/:id/cerrar", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const { id } = req.params;
-  const control = toppingControls.find(item => String(item.id) === String(id));
-  if (!control) {
-    return res.status(404).json({ error: "Control de topping no encontrado." });
-  }
-
-  if (control.estado !== 'abierto') {
-    return res.status(400).json({ error: "El control de topping ya está cerrado." });
-  }
-
-  const observacion = String(req.body?.observacion || '').trim();
-  const fechaCierre = req.body?.fechaCierre ? new Date(req.body.fechaCierre) : new Date();
-  const rendimientoRealRaw = req.body?.rendimientoReal;
-  if (Number.isNaN(fechaCierre.getTime())) {
-    return res.status(400).json({ error: "La fecha de cierre no es válida." });
-  }
-
-  ensureConsumableControlSnapshot('topping', control);
-  const rendimientoReal = rendimientoRealRaw === undefined || rendimientoRealRaw === null || rendimientoRealRaw === ''
-    ? Math.max(Number(control.rendimientoTeorico || 0), Number(control.porcionesVendidas || 0), 1)
-    : Number(rendimientoRealRaw);
-  if (Number.isNaN(rendimientoReal) || rendimientoReal <= 0) {
-    return res.status(400).json({ error: "El rendimiento real del topping debe ser mayor a cero." });
-  }
-  if (rendimientoReal < Number(control.porcionesVendidas || 0)) {
-    return res.status(400).json({ error: "El rendimiento real no puede ser menor que las porciones ya vendidas." });
-  }
-
-  control.estado = 'cerrado';
-  control.fechaCierre = fechaCierre.toISOString();
-  control.observacionCierre = observacion || null;
-  control.rendimientoReal = rendimientoReal;
-  control.mermaReal = Math.max(Number(control.rendimientoTeorico || 0) - rendimientoReal, 0);
-  control.costoPorcionFinal = rendimientoReal > 0 ? Number(control.costoAperturaTotal || 0) / rendimientoReal : 0;
-  control.costoEstado = 'final';
-
-  const affectedSales = applyFinalCostToSalesForControl('topping', control);
-  const cleanupResult = removeConsumableCloseInventoryMovements('topping', control);
-
-  await commitBatch([
-    { type: 'set', collection: COLLECTIONS.toppingControls, id: control.id, data: control },
-    ...(cleanupResult.affectedProduct ? [
-      { type: 'set', collection: COLLECTIONS.productos, id: cleanupResult.affectedProduct.id, data: cleanupResult.affectedProduct }
-    ] : []),
-    ...cleanupResult.removedMovements.map(movement => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id: movement.id })),
-    ...affectedSales.map(venta => ({ type: 'set', collection: COLLECTIONS.ventas, id: venta.id, data: venta }))
-  ]);
-  res.json({ message: "Control de topping cerrado correctamente y costo final aplicado a las ventas asociadas.", control });
-}));
-
-app.get("/salsas-control", asyncHandler(async (req, res) => {
-  await hydrateStore([COLLECTIONS.sauceControls]);
-  res.json(sauceControls.map(control => ensureConsumableControlSnapshot('sauce', control)));
-}));
-
-app.post("/salsas-control/abrir", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const sauceId = req.body?.sauceId !== undefined && req.body?.sauceId !== null ? String(req.body.sauceId) : '';
-  const observacion = String(req.body?.observacion || '').trim();
-  const fechaApertura = req.body?.fechaApertura ? new Date(req.body.fechaApertura) : new Date();
-
-  if (!sauceId) {
-    return res.status(400).json({ error: "Selecciona una salsa/aderezo para abrir el control." });
-  }
-
-  if (Number.isNaN(fechaApertura.getTime())) {
-    return res.status(400).json({ error: "La fecha de apertura no es válida." });
-  }
-
-  const sauce = salsas.find(item => String(item.id) === sauceId);
-  if (!sauce) {
-    return res.status(404).json({ error: "Salsa/aderezo no encontrado." });
-  }
-
-  if (getActiveSauceControlForSauce(sauceId)) {
-    return res.status(400).json({ error: "Ya hay un control abierto para esta salsa/aderezo." });
-  }
-
-  const materiaPrima = productos.find(producto => String(producto.id) === String(sauce.materiaPrimaId));
-  if (!materiaPrima) {
-    return res.status(400).json({ error: "La materia prima vinculada a la salsa/aderezo no existe." });
-  }
-
-  const sauceAvailableStock = getSauceAvailableStock(sauce.id);
-  if (Number.isNaN(sauceAvailableStock) || sauceAvailableStock <= 0) {
-    return res.status(400).json({ error: `No puedes abrir ${sauce.nombre} porque no hay compra disponible para esa salsa/aderezo en ${materiaPrima.nombre}.` });
-  }
-
-  const assignedLayer = getNextConsumableLayer('sauce', sauce.id);
-  if (!assignedLayer) {
-    return res.status(400).json({ error: `No hay una unidad de compra disponible para abrir ${sauce.nombre}.` });
-  }
-
-  const control = {
-    id: createDocId(COLLECTIONS.sauceControls),
-    sauceId: sauce.id,
-    sauceNombre: sauce.nombre,
-    materiaPrimaId: sauce.materiaPrimaId,
-    materiaPrimaNombre: sauce.materiaPrimaNombre,
-    fechaApertura: fechaApertura.toISOString(),
-    fechaCierre: null,
-    estado: 'abierto',
-    porcionesVendidas: 0,
-    ventasAsociadas: 0,
-    observacionApertura: observacion || null,
-    observacionCierre: null,
-    rendimientoReal: null,
-    mermaReal: null,
-    costoPorcionFinal: null,
-    costoEstado: 'provisional'
-  };
-
-  applyConsumableCostSnapshot(control, assignedLayer);
-
-  sauceControls.push(control);
-  await saveRecord(COLLECTIONS.sauceControls, control);
-  res.status(201).json({ message: "Control de salsa/aderezo abierto correctamente.", control });
-}));
-
-app.post("/salsas-control/:id/cerrar", asyncHandler(async (req, res) => {
-  await hydrateStore();
-  const { id } = req.params;
-  const control = sauceControls.find(item => String(item.id) === String(id));
-  if (!control) {
-    return res.status(404).json({ error: "Control de salsa/aderezo no encontrado." });
-  }
-
-  if (control.estado !== 'abierto') {
-    return res.status(400).json({ error: "El control de salsa/aderezo ya está cerrado." });
-  }
-
-  const observacion = String(req.body?.observacion || '').trim();
-  const fechaCierre = req.body?.fechaCierre ? new Date(req.body.fechaCierre) : new Date();
-  const rendimientoRealRaw = req.body?.rendimientoReal;
-  if (Number.isNaN(fechaCierre.getTime())) {
-    return res.status(400).json({ error: "La fecha de cierre no es válida." });
-  }
-
-  ensureConsumableControlSnapshot('sauce', control);
-  const rendimientoReal = rendimientoRealRaw === undefined || rendimientoRealRaw === null || rendimientoRealRaw === ''
-    ? Math.max(Number(control.rendimientoTeorico || 0), Number(control.porcionesVendidas || 0), 1)
-    : Number(rendimientoRealRaw);
-  if (Number.isNaN(rendimientoReal) || rendimientoReal <= 0) {
-    return res.status(400).json({ error: "El rendimiento real de la salsa/aderezo debe ser mayor a cero." });
-  }
-  if (rendimientoReal < Number(control.porcionesVendidas || 0)) {
-    return res.status(400).json({ error: "El rendimiento real no puede ser menor que las porciones ya vendidas." });
-  }
-
-  control.estado = 'cerrado';
-  control.fechaCierre = fechaCierre.toISOString();
-  control.observacionCierre = observacion || null;
-  control.rendimientoReal = rendimientoReal;
-  control.mermaReal = Math.max(Number(control.rendimientoTeorico || 0) - rendimientoReal, 0);
-  control.costoPorcionFinal = rendimientoReal > 0 ? Number(control.costoAperturaTotal || 0) / rendimientoReal : 0;
-  control.costoEstado = 'final';
-
-  const affectedSales = applyFinalCostToSalesForControl('sauce', control);
-  const cleanupResult = removeConsumableCloseInventoryMovements('sauce', control);
-
-  await commitBatch([
-    { type: 'set', collection: COLLECTIONS.sauceControls, id: control.id, data: control },
-    ...(cleanupResult.affectedProduct ? [
-      { type: 'set', collection: COLLECTIONS.productos, id: cleanupResult.affectedProduct.id, data: cleanupResult.affectedProduct }
-    ] : []),
-    ...cleanupResult.removedMovements.map(movement => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id: movement.id })),
-    ...affectedSales.map(venta => ({ type: 'set', collection: COLLECTIONS.ventas, id: venta.id, data: venta }))
-  ]);
-  res.json({ message: "Control de salsa/aderezo cerrado correctamente y costo final aplicado a las ventas asociadas.", control });
-}));
-
-app.post("/controles/reparar-historico", asyncHandler(async (req, res) => {
-  await hydrateStore();
-
-  const bucketSummary = repairConsumableControls('bucket');
-  const toppingSummary = repairConsumableControls('topping');
-  const sauceSummary = repairConsumableControls('sauce');
-
-  await commitBatch([
-    ...baldesControl.map(bucket => ({ type: 'set', collection: COLLECTIONS.baldesControl, id: bucket.id, data: bucket })),
-    ...toppingControls.map(control => ({ type: 'set', collection: COLLECTIONS.toppingControls, id: control.id, data: control })),
-    ...sauceControls.map(control => ({ type: 'set', collection: COLLECTIONS.sauceControls, id: control.id, data: control })),
-    ...productos.map(producto => ({ type: 'set', collection: COLLECTIONS.productos, id: producto.id, data: producto })),
-    ...bucketSummary.removedMovementIds.map(id => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id })),
-    ...toppingSummary.removedMovementIds.map(id => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id })),
-    ...sauceSummary.removedMovementIds.map(id => ({ type: 'delete', collection: COLLECTIONS.inventoryMovements, id })),
-    ...inventoryMovements.map(movement => ({ type: 'set', collection: COLLECTIONS.inventoryMovements, id: movement.id, data: movement })),
-    ...ventas.map(venta => ({ type: 'set', collection: COLLECTIONS.ventas, id: venta.id, data: venta }))
-  ]);
-
-  const summary = {
-    baldes: bucketSummary,
-    toppings: toppingSummary,
-    salsas: sauceSummary,
-    totals: {
-      controles: bucketSummary.repairedControls + toppingSummary.repairedControls + sauceSummary.repairedControls,
-      movimientosEliminados: bucketSummary.removedMovements + toppingSummary.removedMovements + sauceSummary.removedMovements,
-      ventasActualizadas: bucketSummary.updatedSales + toppingSummary.updatedSales + sauceSummary.updatedSales,
-      productosActualizados: bucketSummary.updatedProducts + toppingSummary.updatedProducts + sauceSummary.updatedProducts
-    }
-  };
-
-  res.json({
-    message: 'Reparación histórica completada correctamente.',
-    summary
-  });
-}));
-
+registerControlRoutes();
 const { registerPurchaseRoutes } = createPurchaseHandlers({
   app,
   asyncHandler,
@@ -2096,6 +1729,7 @@ if (require.main === module) {
     console.log(`Servidor en http://localhost:${port}`);
   });
 }
+
 
 
 
