@@ -8,6 +8,7 @@ const {
   DEFAULT_AUTH_TOKEN_DURATION_MS
 } = require("./backend/auth");
 const { createFlavorCatalogHandlers } = require("./backend/flavors");
+const { createFundHandlers } = require("./backend/funds");
 const { createInventoryHandlers } = require("./backend/inventory");
 const { createPaymentHandlers } = require("./backend/payments");
 const { createPurchaseHandlers } = require("./backend/purchases");
@@ -2128,88 +2129,24 @@ const { registerPaymentRoutes } = createPaymentHandlers({
 });
 
 registerPaymentRoutes();
-app.get("/efectivo/traslados", asyncHandler(async (req, res) => {
-  await hydrateStore([COLLECTIONS.fundTransfers]);
-  const sortedTransfers = fundTransfers
-    .slice()
-    .sort((left, right) => new Date(right.fecha || right.createdAt || 0) - new Date(left.fecha || left.createdAt || 0));
-  res.json(sortedTransfers);
-}));
 
-app.get("/efectivo/configuracion", asyncHandler(async (req, res) => {
-  await hydrateStore([COLLECTIONS.fundSettings]);
-  res.json(getCurrentFundSettings());
-}));
-
-app.post("/efectivo/configuracion", asyncHandler(async (req, res) => {
-  await hydrateStore([COLLECTIONS.fundSettings]);
-
-  const openingCashBalance = normalizeNonNegativeAmount(req.body?.openingCashBalance);
-  const openingBankBalance = normalizeNonNegativeAmount(req.body?.openingBankBalance);
-  const minimumCashReserve = normalizeNonNegativeAmount(req.body?.minimumCashReserve);
-
-  if (openingCashBalance === null || openingBankBalance === null || minimumCashReserve === null) {
-    return res.status(400).json({ error: "Los saldos iniciales y el fondo mínimo deben ser números mayores o iguales a cero." });
+const { registerFundRoutes } = createFundHandlers({
+  app,
+  asyncHandler,
+  collections: COLLECTIONS,
+  createDocId,
+  getCurrentFundSettings,
+  getFundTransfers: () => fundTransfers,
+  hydrateStore,
+  normalizeFundAccount,
+  normalizeNonNegativeAmount,
+  saveRecord,
+  setFundSettings: nextSettings => {
+    fundSettings = nextSettings;
   }
+});
 
-  const currentSettings = getCurrentFundSettings();
-  const now = new Date().toISOString();
-  const nextSettings = {
-    ...currentSettings,
-    id: currentSettings.id || 'main',
-    openingCashBalance,
-    openingBankBalance,
-    minimumCashReserve,
-    createdAt: currentSettings.createdAt || now,
-    updatedAt: now
-  };
-
-  fundSettings = [nextSettings];
-  await saveRecord(COLLECTIONS.fundSettings, nextSettings);
-  res.json({ message: "Configuración de efectivo y bancos guardada correctamente.", settings: nextSettings });
-}));
-
-app.post("/efectivo/traslados", asyncHandler(async (req, res) => {
-  await hydrateStore([COLLECTIONS.fundTransfers]);
-  const fromAccount = normalizeFundAccount(req.body?.fromAccount);
-  const toAccount = normalizeFundAccount(req.body?.toAccount);
-  const amount = Number(req.body?.amount);
-  const transferDate = req.body?.fecha ? new Date(req.body.fecha) : new Date();
-  const description = String(req.body?.description || '').trim();
-  const reference = String(req.body?.reference || '').trim();
-  const note = String(req.body?.note || '').trim();
-
-  if (!fromAccount || !toAccount) {
-    return res.status(400).json({ error: "Debes seleccionar una cuenta origen y una cuenta destino válidas." });
-  }
-  if (fromAccount === toAccount) {
-    return res.status(400).json({ error: "El origen y el destino del traslado deben ser distintos." });
-  }
-  if (Number.isNaN(amount) || amount <= 0) {
-    return res.status(400).json({ error: "El monto del traslado debe ser mayor a cero." });
-  }
-  if (Number.isNaN(transferDate.getTime())) {
-    return res.status(400).json({ error: "La fecha del traslado no es válida." });
-  }
-
-  const now = new Date().toISOString();
-  const transfer = {
-    id: createDocId(COLLECTIONS.fundTransfers),
-    fromAccount,
-    toAccount,
-    amount,
-    fecha: transferDate.toISOString(),
-    description: description || `Traslado de ${fromAccount} a ${toAccount}`,
-    reference: reference || null,
-    note: note || null,
-    createdAt: now,
-    updatedAt: now
-  };
-
-  fundTransfers.push(transfer);
-  await saveRecord(COLLECTIONS.fundTransfers, transfer);
-  res.status(201).json({ message: "Traslado de fondos registrado correctamente.", transfer });
-}));
+registerFundRoutes();
 
 const { registerInventoryRoutes } = createInventoryHandlers({
   app,
@@ -2459,6 +2396,7 @@ if (require.main === module) {
     console.log(`Servidor en http://localhost:${port}`);
   });
 }
+
 
 
 
