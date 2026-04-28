@@ -1480,7 +1480,7 @@ app.get("/favicon.ico", (req, res) => {
   res.status(204).end();
 });
 
-const { registerAuthRoutes, requireAuth } = createAuthHandlers({
+const { registerAuthRoutes, requireAuth, requirePermission } = createAuthHandlers({
   app,
   asyncHandler,
   authSecret: AUTH_SECRET,
@@ -1508,6 +1508,18 @@ app.use((req, res, next) => {
 
   return requireAuth(req, res, next);
 });
+
+function protectModuleRoutes(permissionKey, paths) {
+  app.use(paths, requirePermission(permissionKey));
+}
+
+protectModuleRoutes("ingreso", ["/productos"]);
+protectModuleRoutes("sabores", ["/sabores", "/toppings", "/salsas", "/baldes-control", "/toppings-control", "/salsas-control", "/controles"]);
+protectModuleRoutes("compras", ["/compras"]);
+protectModuleRoutes("ventas", ["/ventas"]);
+protectModuleRoutes("pagos", ["/pagos", "/pagos-categorias", "/deudas-externas"]);
+protectModuleRoutes("efectivo", ["/efectivo"]);
+protectModuleRoutes("inventario", ["/inventario"]);
 
 const { registerProductRoutes } = createProductHandlers({
   app,

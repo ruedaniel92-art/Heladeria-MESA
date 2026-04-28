@@ -190,6 +190,27 @@ function createAuthHandlers({
     });
   }
 
+  function requirePermission(permissionKey) {
+    const normalizedPermissionKey = String(permissionKey || "").trim();
+    return (req, res, next) => {
+      const checkPermission = () => {
+        const user = req.authUser;
+        const role = String(user?.role || "user");
+        const permissions = normalizeUserPermissions(user?.permissions, role);
+        if (role === "admin" || permissions[normalizedPermissionKey]) {
+          return next();
+        }
+        return res.status(403).json({ error: "No tienes permiso para acceder a este mÃ³dulo." });
+      };
+
+      if (req.authUser) {
+        return checkPermission();
+      }
+
+      return requireAuth(req, res, checkPermission);
+    };
+  }
+
   function registerAuthRoutes() {
     app.get("/auth/status", asyncHandler(async (req, res) => {
       await hydrateStore([collections.users]);
@@ -404,7 +425,8 @@ function createAuthHandlers({
     attachAuthResponseHeaders,
     registerAuthRoutes,
     requireAdmin,
-    requireAuth
+    requireAuth,
+    requirePermission
   };
 }
 

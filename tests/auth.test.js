@@ -151,6 +151,33 @@ function jsonAuthHeaders(token) {
   };
 }
 
+async function createUser(baseUrl, adminToken, overrides = {}) {
+  const response = await fetch(`${baseUrl}/auth/users`, {
+    method: "POST",
+    headers: jsonAuthHeaders(adminToken),
+    body: JSON.stringify({
+      nombre: overrides.nombre || "Usuario Prueba",
+      username: overrides.username || "usuario-prueba",
+      password: overrides.password || "secreto123",
+      role: overrides.role || "user",
+      permissions: overrides.permissions || {}
+    })
+  });
+  assert.equal(response.status, 201);
+  return response.json();
+}
+
+async function loginUser(baseUrl, username, password = "secreto123") {
+  const response = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password })
+  });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  return result.token;
+}
+
 const tests = [
   {
     name: "health expone el estado del entorno",
@@ -343,6 +370,47 @@ const tests = [
     }
   },
   {
+    name: "permisos de modulo se aplican en rutas del backend",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const adminToken = await bootstrapAdmin(baseUrl);
+
+          await createUser(baseUrl, adminToken, {
+            nombre: "Sin Ventas",
+            username: "sin-ventas",
+            permissions: {
+              dashboard: true
+            }
+          });
+          const restrictedToken = await loginUser(baseUrl, "sin-ventas");
+
+          const restrictedResponse = await fetch(`${baseUrl}/ventas`, {
+            headers: authHeaders(restrictedToken)
+          });
+          assert.equal(restrictedResponse.status, 403);
+
+          await createUser(baseUrl, adminToken, {
+            nombre: "Con Ventas",
+            username: "con-ventas",
+            permissions: {
+              dashboard: true,
+              ventas: true
+            }
+          });
+          const allowedToken = await loginUser(baseUrl, "con-ventas");
+
+          const allowedResponse = await fetch(`${baseUrl}/ventas`, {
+            headers: authHeaders(allowedToken)
+          });
+          assert.equal(allowedResponse.status, 200);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },  {
     name: "catalogo de sabores funciona autenticado tras la extracción",
     async run() {
       const { app, restore } = loadApp();
@@ -1015,5 +1083,6 @@ async function main() {
 }
 
 main();
+
 
 
