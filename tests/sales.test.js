@@ -170,6 +170,77 @@ module.exports = [
     }
   },
   {
+    name: "venta personalizada libre reconoce productos legados con tipo personalizado",
+    async run() {
+      const { app, db, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          await db.collection("productos").doc("legacy-custom").set({
+            id: "legacy-custom",
+            nombre: "Copa libre legacy",
+            tipo: "Personalizado libre",
+            precio: 60,
+            stockMin: 0,
+            stock: 0
+          });
+
+          const token = await bootstrapAdmin(baseUrl);
+
+          const rawResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Fresa legacy",
+              tipo: "materia prima",
+              stockMin: 1,
+              medida: "unidad",
+              rendimientoPorCompra: 1
+            })
+          });
+          assert.equal(rawResponse.status, 201);
+          const raw = (await rawResponse.json()).producto;
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({ productId: raw.id, quantity: 6, unitCost: 1 })
+          });
+          assert.equal(inventoryResponse.status, 201);
+
+          const saleResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              cliente: "Cliente legacy",
+              fecha: "2026-04-29",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 120,
+              items: [{
+                id: "legacy-custom",
+                cantidad: 2,
+                precio: 60,
+                componentes: [{ id: raw.id, cantidad: 1 }]
+              }]
+            })
+          });
+          assert.equal(saleResponse.status, 201);
+          const saleResult = await saleResponse.json();
+          assert.equal(saleResult.venta.items[0].modoControl, "personalizado");
+          assert.equal(saleResult.venta.items[0].componentes[0].cantidadTotal, 2);
+
+          const inventory = await (await fetch(`${baseUrl}/inventario`, {
+            headers: authHeaders(token)
+          })).json();
+          assert.equal(inventory.productos.find(item => item.id === raw.id).stock, 4);
+          assert.equal(inventory.productos.find(item => item.id === "legacy-custom").stock, 0);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
     name: "venta personalizada libre exige componentes con stock",
     async run() {
       const { app, restore } = loadApp();

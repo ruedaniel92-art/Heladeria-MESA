@@ -5,11 +5,15 @@ function normalizeNonNegativeNumber(value) {
 
 function normalizeInventoryMode(value) {
   const normalizedValue = String(value || "").trim().toLowerCase();
+  const normalizedLooseValue = normalizedValue
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\s_]+/g, "-");
   if (normalizedValue === "directo") return "directo";
   if (normalizedValue === "receta") return "receta";
   if (normalizedValue === "helado-sabores") return "helado-sabores";
   if (normalizedValue === "mixto") return "mixto";
-  if (["personalizado", "personalizado-libre", "armado-libre"].includes(normalizedValue)) return "personalizado";
+  if (["personalizado", "personalizado-libre", "armado-libre"].includes(normalizedLooseValue)) return "personalizado";
   if (normalizedValue === "materia-prima") return "materia-prima";
   return "";
 }
@@ -70,7 +74,7 @@ function getMateriaPrimaStockIncrement(producto, cantidadCompra) {
 
 function getProductInventoryMode(producto) {
   const tipo = normalizeProductType(producto?.tipo || producto?.type);
-  const explicitMode = normalizeInventoryMode(producto?.modoControl || producto?.inventoryMode);
+  const explicitMode = normalizeInventoryMode(producto?.modoControl || producto?.inventoryMode || producto?.tipo || producto?.type);
   if (explicitMode) {
     return explicitMode;
   }

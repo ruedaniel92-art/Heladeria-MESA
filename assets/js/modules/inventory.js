@@ -41,17 +41,21 @@ export function createInventoryModule(context) {
 
   function normalizeInventoryMode(value) {
     const mode = String(value || '').trim().toLowerCase();
+    const looseMode = mode
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\s_]+/g, '-');
     if (mode === 'directo') return 'directo';
     if (mode === 'receta') return 'receta';
     if (mode === 'helado-sabores') return 'helado-sabores';
     if (mode === 'mixto') return 'mixto';
-    if (['personalizado', 'personalizado-libre', 'armado-libre'].includes(mode)) return 'personalizado';
+    if (['personalizado', 'personalizado-libre', 'armado-libre'].includes(looseMode)) return 'personalizado';
     if (mode === 'materia-prima') return 'materia-prima';
     return '';
   }
 
   function getProductInventoryMode(producto) {
-    const explicitMode = normalizeInventoryMode(producto?.modoControl || producto?.inventoryMode);
+    const explicitMode = normalizeInventoryMode(producto?.modoControl || producto?.inventoryMode || producto?.tipo || producto?.type);
     if (explicitMode) return explicitMode;
     const tipo = String(producto?.tipo || producto?.type || '').trim().toLowerCase();
     if (tipo === 'materia prima') return 'materia-prima';
