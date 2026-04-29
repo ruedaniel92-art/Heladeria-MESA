@@ -324,7 +324,7 @@ function createAuthHandlers({
     }));
 
     app.get("/auth/users", requireAdmin, asyncHandler(async (req, res) => {
-      await hydrateStore([collections.users]);
+      await hydrateStore([collections.users], { forceRefresh: true });
       res.json(getUsers().map(sanitizeUserForClient));
     }));
 

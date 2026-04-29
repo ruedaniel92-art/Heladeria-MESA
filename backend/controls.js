@@ -129,7 +129,7 @@ function createControlHandlers({
 
   function registerListRoute(kind, config) {
     app.get(config.listPath, asyncHandler(async (req, res) => {
-      await hydrateStore([config.collection]);
+      await hydrateStore([config.collection], { forceRefresh: true });
       res.json(config.controlGetter().map(control => ensureConsumableControlSnapshot(kind, control)));
     }));
   }

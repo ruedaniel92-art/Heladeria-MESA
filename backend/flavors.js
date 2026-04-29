@@ -29,17 +29,17 @@ function createFlavorCatalogHandlers({
 
   function registerFlavorCatalogRoutes() {
     app.get("/sabores", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.sabores]);
+      await hydrateStore([collections.sabores], { forceRefresh: true });
       res.json(getSabores());
     }));
 
     app.get("/toppings", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.toppings]);
+      await hydrateStore([collections.toppings], { forceRefresh: true });
       res.json(getToppings());
     }));
 
     app.get("/salsas", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.salsas]);
+      await hydrateStore([collections.salsas], { forceRefresh: true });
       res.json(getSalsas());
     }));
 

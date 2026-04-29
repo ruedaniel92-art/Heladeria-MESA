@@ -140,7 +140,7 @@ function createProductHandlers({
     }));
 
     app.get("/productos", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.productos]);
+      await hydrateStore([collections.productos], { forceRefresh: true });
       res.json(getProductos());
     }));
 

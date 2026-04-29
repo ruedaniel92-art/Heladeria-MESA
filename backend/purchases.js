@@ -223,7 +223,7 @@ function createPurchaseHandlers({
     }));
 
     app.get("/compras", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.compras]);
+      await hydrateStore([collections.compras], { forceRefresh: true });
       res.json(getCompras().map(compra => ensurePurchaseFinancialState(compra)));
     }));
 

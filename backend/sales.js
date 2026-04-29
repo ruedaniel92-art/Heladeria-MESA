@@ -487,7 +487,7 @@ function createSalesHandlers({
     }));
 
     app.get("/ventas", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.ventas]);
+      await hydrateStore([collections.ventas], { forceRefresh: true });
       res.json(getVentas().map(venta => ensureSaleFinancialState(venta)));
     }));
 

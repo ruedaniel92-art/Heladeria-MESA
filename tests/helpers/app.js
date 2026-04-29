@@ -96,6 +96,7 @@ function loadApp(envOverrides = {}) {
 
   return {
     app,
+    db: fakeDb,
     restore() {
       delete require.cache[serverPath];
       delete require.cache[firebasePath];

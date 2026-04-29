@@ -13,7 +13,7 @@ function createFundHandlers({
 }) {
   function registerFundRoutes() {
     app.get("/efectivo/traslados", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.fundTransfers]);
+      await hydrateStore([collections.fundTransfers], { forceRefresh: true });
       const sortedTransfers = getFundTransfers()
         .slice()
         .sort((left, right) => new Date(right.fecha || right.createdAt || 0) - new Date(left.fecha || left.createdAt || 0));
@@ -21,7 +21,7 @@ function createFundHandlers({
     }));
 
     app.get("/efectivo/configuracion", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.fundSettings]);
+      await hydrateStore([collections.fundSettings], { forceRefresh: true });
       res.json(getCurrentFundSettings());
     }));
 

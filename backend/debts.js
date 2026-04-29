@@ -15,7 +15,7 @@ function createDebtHandlers({
 }) {
   function registerDebtRoutes() {
     app.get("/deudas-externas", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.externalDebts]);
+      await hydrateStore([collections.externalDebts], { forceRefresh: true });
       const sortedDebts = getExternalDebts()
         .map(debt => ensureExternalDebtFinancialState(debt))
         .slice()

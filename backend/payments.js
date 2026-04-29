@@ -14,7 +14,7 @@ function createPaymentHandlers({
 }) {
   function registerPaymentRoutes() {
     app.get("/pagos-categorias", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.paymentCategories]);
+      await hydrateStore([collections.paymentCategories], { forceRefresh: true });
       const sortedCategories = getPaymentCategories().slice().sort((left, right) => String(left.nombre || "").localeCompare(String(right.nombre || ""), "es", { sensitivity: "base" }));
       res.json(sortedCategories);
     }));
@@ -79,7 +79,7 @@ function createPaymentHandlers({
     }));
 
     app.delete("/pagos-categorias/:id", asyncHandler(async (req, res) => {
-      await hydrateStore();
+      await hydrateStore([collections.paymentCategories, collections.pagos], { forceRefresh: true });
       const pagos = getPagos();
       const paymentCategories = getPaymentCategories();
       const { id } = req.params;
@@ -99,7 +99,7 @@ function createPaymentHandlers({
     }));
 
     app.get("/pagos", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.pagos]);
+      await hydrateStore([collections.pagos], { forceRefresh: true });
       const sortedPayments = getPagos().slice().sort((left, right) => new Date(right.fecha || right.createdAt || 0) - new Date(left.fecha || left.createdAt || 0));
       res.json(sortedPayments);
     }));

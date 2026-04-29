@@ -10,7 +10,7 @@ function createInventoryHandlers({
 }) {
   function registerInventoryRoutes() {
     app.get("/inventario/movimientos", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.inventoryMovements]);
+      await hydrateStore([collections.inventoryMovements], { forceRefresh: true });
       const sortedMovements = getInventoryMovements()
         .slice()
         .sort((a, b) => new Date(a.fecha || a.createdAt || 0) - new Date(b.fecha || b.createdAt || 0));
@@ -133,7 +133,7 @@ function createInventoryHandlers({
     }));
 
     app.get("/inventario", asyncHandler(async (req, res) => {
-      await hydrateStore([collections.productos]);
+      await hydrateStore([collections.productos], { forceRefresh: true });
       const productos = getProductos();
       const totalProductos = productos.length;
       const totalStock = productos.reduce((sum, item) => sum + Number(item.stock || 0), 0);
