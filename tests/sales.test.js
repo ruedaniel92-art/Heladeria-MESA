@@ -344,6 +344,87 @@ module.exports = [
     }
   },
   {
+    name: "venta con extra de materia prima descuenta el inventario enlazado",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          async function createProduct(payload) {
+            const response = await fetch(`${baseUrl}/productos`, {
+              method: "POST",
+              headers: jsonAuthHeaders(token),
+              body: JSON.stringify(payload)
+            });
+            assert.equal(response.status, 201);
+            return (await response.json()).producto;
+          }
+
+          const cup = await createProduct({
+            nombre: "Copa base",
+            tipo: "productos",
+            stockMin: 1,
+            precio: 40,
+            modoControl: "directo"
+          });
+          const toppingRaw = await createProduct({
+            nombre: "Topping granola",
+            tipo: "materia prima",
+            stockMin: 1,
+            medida: "porción",
+            rendimientoPorCompra: 1
+          });
+
+          for (const [productId, quantity] of [[cup.id, 4], [toppingRaw.id, 10]]) {
+            const inventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+              method: "POST",
+              headers: jsonAuthHeaders(token),
+              body: JSON.stringify({ productId, quantity, unitCost: 1 })
+            });
+            assert.equal(inventoryResponse.status, 201);
+          }
+
+          const saleResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              cliente: "Cliente extra materia",
+              fecha: "2026-04-29",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 50,
+              items: [{
+                id: cup.id,
+                cantidad: 1,
+                precio: 40,
+                adicionales: [{
+                  tipo: "extra",
+                  nombre: toppingRaw.nombre,
+                  cantidad: 2,
+                  precio: 5,
+                  materiaPrimaId: toppingRaw.id
+                }]
+              }]
+            })
+          });
+          assert.equal(saleResponse.status, 201);
+          const saleResult = await saleResponse.json();
+          assert.equal(saleResult.venta.totalAmount, 50);
+          assert.equal(saleResult.venta.items[0].adicionales[0].materiaPrimaId, toppingRaw.id);
+
+          const inventory = await (await fetch(`${baseUrl}/inventario`, {
+            headers: authHeaders(token)
+          })).json();
+          assert.equal(inventory.productos.find(item => item.id === cup.id).stock, 3);
+          assert.equal(inventory.productos.find(item => item.id === toppingRaw.id).stock, 8);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
     name: "abono de venta a crédito actualiza saldo tras la extracción",
     async run() {
       const { app, restore } = loadApp();

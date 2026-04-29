@@ -7989,16 +7989,21 @@
       const lines = Array.from(saleLines.querySelectorAll('.purchase-row'));
       const productRows = lines.filter(row => salesComposer.isSaleProductLineRow(row));
       const extraRows = lines.filter(row => salesComposer.isSaleExtraLineRow(row));
-      const extraLinesByParent = extraRows.reduce((map, row) => {
-        const parentLineId = String(row.dataset.parentLineId || '');
-        const parsed = salesComposer.parseSaleExtraLine(row);
-        const bucket = map.get(parentLineId) || [];
-        if (parsed.addon) {
-          bucket.push(parsed.addon);
+      const parsedExtraLines = extraRows.map(row => ({
+        parentLineId: String(row.dataset.parentLineId || ''),
+        parsed: salesComposer.parseSaleExtraLine(row)
+      }));
+      const extraLinesByParent = parsedExtraLines.reduce((map, entry) => {
+        const bucket = map.get(entry.parentLineId) || [];
+        if (entry.parsed.addon) {
+          bucket.push(entry.parsed.addon);
         }
-        map.set(parentLineId, bucket);
+        map.set(entry.parentLineId, bucket);
         return map;
       }, new Map());
+      const extraSaleItems = parsedExtraLines
+        .filter(entry => entry.parsed.item)
+        .map(entry => entry.parsed.item);
       const items = productRows.map(row => {
         const select = row.querySelector('.sale-product-source');
         const quantity = Number(row.querySelector('.sale-quantity').value);
@@ -8012,7 +8017,8 @@
           ...(extraLinesByParent.get(String(row.dataset.lineId || '')) || [])
         ];
         return { id, nombre, cantidad: quantity, precio: price, componentes, sabores, adicionales };
-      }).filter(item => item.id && item.cantidad > 0 && !Number.isNaN(item.precio));
+      }).filter(item => item.id && item.cantidad > 0 && !Number.isNaN(item.precio))
+        .concat(extraSaleItems);
 
       if (!documentValue || !customerValue || !dateValue || !items.length) {
         saleStatus.className = 'status error';

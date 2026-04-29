@@ -169,10 +169,36 @@ export function createSalesComposerModule(context) {
     const isEmpty = !name && !quantityRaw && !priceRaw;
 
     if (isEmpty) {
-      return { isEmpty: true, isValid: true, addon: null };
+      return { isEmpty: true, isValid: true, addon: null, item: null };
     }
 
     const isValid = Boolean(name) && Number.isInteger(quantity) && quantity > 0 && !Number.isNaN(price) && price >= 0;
+    const catalogItem = findSaleExtraCatalogItem(name);
+    const catalogProduct = catalogItem?.kind === 'flavor-product' ? findProductById(catalogItem.id) : null;
+    const catalogRawMaterial = catalogItem?.kind === 'materia-prima' ? findProductById(catalogItem.id) : null;
+    if (catalogProduct) {
+      const selectedFlavors = getSaleLineSelectedFlavors(row);
+      const expectedScoops = Math.max(Number(catalogProduct.pelotasPorUnidad || 0) * (Number.isNaN(quantity) ? 0 : quantity), 0);
+      const assignedScoops = selectedFlavors.reduce((sum, flavor) => sum + Number(flavor.porciones || 0), 0);
+      const isFlavorItemValid = isValid && selectedFlavors.length > 0 && expectedScoops > 0 && assignedScoops === expectedScoops;
+      return {
+        isEmpty: false,
+        isValid: isFlavorItemValid,
+        addon: null,
+        item: isFlavorItemValid
+          ? {
+              id: catalogProduct.id,
+              nombre: catalogProduct.nombre,
+              cantidad: quantity,
+              precio: price,
+              sabores: selectedFlavors,
+              componentes: [],
+              adicionales: []
+            }
+          : null
+      };
+    }
+
     const matchedTopping = getToppingByName(name);
     const matchedSauce = !matchedTopping ? getSauceByName(name) : null;
     const matchedAddon = matchedTopping || matchedSauce;
@@ -187,9 +213,29 @@ export function createSalesComposerModule(context) {
         ? getSauceAvailableStock(matchedSauce.id) >= quantity
         : true;
     const isAddonValid = isValid && hasStockForMatchedAddon;
+    if (catalogRawMaterial && isValid && !matchedAddon) {
+      return {
+        isEmpty: false,
+        isValid: Number(catalogRawMaterial.stock || 0) >= quantity,
+        item: null,
+        addon: Number(catalogRawMaterial.stock || 0) >= quantity
+          ? {
+              id: null,
+              tipo: 'extra',
+              nombre: catalogRawMaterial.nombre,
+              cantidad: quantity,
+              precio: price,
+              addonCategory: 'materia-prima',
+              materiaPrimaId: catalogRawMaterial.id,
+              materiaPrimaNombre: catalogRawMaterial.nombre
+            }
+          : null
+      };
+    }
     return {
       isEmpty: false,
       isValid: isAddonValid && hasActiveControlForMatchedAddon,
+      item: null,
       addon: isAddonValid && hasActiveControlForMatchedAddon
         ? {
             id: matchedAddon ? matchedAddon.id : null,
@@ -577,6 +623,37 @@ export function createSalesComposerModule(context) {
     syncSaleFlavorSummary(row);
   }
 
+  function updateSaleExtraFlavorSection(row) {
+    if (!isSaleExtraLineRow(row)) return;
+    const flavorField = row.querySelector('.sale-extra-flavor-field');
+    const flavorRows = row.querySelector('.sale-flavor-rows');
+    if (!flavorField || !flavorRows) return;
+
+    const sourceInput = row.querySelector('.sale-extra-source');
+    const catalogItem = findSaleExtraCatalogItem(sourceInput?.value);
+    const catalogProduct = catalogItem?.kind === 'flavor-product' ? findProductById(catalogItem.id) : null;
+    const shouldShowFlavors = Boolean(catalogProduct) && productUsesFlavors(catalogProduct);
+    const previousProductId = row.dataset.extraFlavorProductId || '';
+    const nextProductId = shouldShowFlavors ? String(catalogProduct.id || '') : '';
+
+    if (previousProductId !== nextProductId) {
+      flavorRows.innerHTML = '';
+    }
+    row.dataset.extraFlavorProductId = nextProductId;
+    flavorField.classList.toggle('field-hidden', !shouldShowFlavors);
+    flavorField.hidden = !shouldShowFlavors;
+
+    if (shouldShowFlavors && !flavorRows.querySelector('.sale-flavor-row') && row.classList.contains('is-editing')) {
+      addSaleFlavorRow(row);
+    }
+
+    flavorRows.querySelectorAll('.sale-flavor-row').forEach(flavorRow => {
+      flavorRow.querySelector('.sale-flavor-select').disabled = !row.classList.contains('is-editing');
+      flavorRow.querySelector('.sale-flavor-amount').disabled = !row.classList.contains('is-editing');
+      flavorRow.querySelector('.remove-sale-flavor-row').disabled = !row.classList.contains('is-editing');
+    });
+  }
+
   function updateSaleRowFlavorSection(row) {
     const select = row.querySelector('.sale-product-source');
     const flavorField = row.querySelector('.sale-flavor-field');
@@ -594,7 +671,7 @@ export function createSalesComposerModule(context) {
     const producto = findProductById(select.value);
     const shouldShowComponents = Boolean(producto) && productUsesFreeComponents(producto);
     const shouldShowCustomization = Boolean(producto) && (shouldShowComponents || productUsesFlavors(producto) || productUsesRecipe(producto));
-    const shouldShowFlavors = shouldShowSaleFlavorSection(producto);
+    const shouldShowFlavors = Boolean(producto) && productUsesFlavors(producto);
 
     flavorField.classList.toggle('field-hidden', !shouldShowCustomization);
     flavorToggleButton.classList.toggle('field-hidden', !shouldShowCustomization);
@@ -617,7 +694,7 @@ export function createSalesComposerModule(context) {
     flavorSection.hidden = !shouldShowFlavors;
     flavorSection.style.display = shouldShowFlavors ? '' : 'none';
 
-    if (!shouldShowFlavors) {
+    if (!shouldShowFlavors || shouldShowComponents) {
       flavorRows.innerHTML = '';
       row.dataset.flavorEditorOpen = row.classList.contains('is-editing') ? 'true' : 'false';
     }
@@ -695,6 +772,7 @@ export function createSalesComposerModule(context) {
       toggleButton.title = isEditing ? 'Guardar extra' : 'Editar extra';
       toggleButton.setAttribute('aria-label', isEditing ? 'Guardar extra' : 'Editar extra');
       syncSearchablePickerTrigger(row.querySelector('.sale-extra-source'));
+      updateSaleExtraFlavorSection(row);
       return;
     }
     row.classList.toggle('is-editing', isEditing);
@@ -739,6 +817,18 @@ export function createSalesComposerModule(context) {
           <button type="button" class="delete-product action-icon-btn remove-sale-line" title="Eliminar extra" aria-label="Eliminar extra">🗑</button>
         </div>
       </div>
+      <div class="field sale-extra-flavor-field field-hidden" hidden>
+        <div class="sale-customization-section">
+          <div class="sale-customization-section-header">
+            <strong>Sabores del extra</strong>
+            <span>Elige los sabores para descontar del balde correcto.</span>
+          </div>
+          <div class="sale-flavor-rows"></div>
+          <div class="sale-flavor-editor-actions">
+            <button type="button" class="secondary-btn add-sale-flavor-row">Agregar sabor</button>
+          </div>
+        </div>
+      </div>
     `;
 
     const sourceInput = row.querySelector('.sale-extra-source');
@@ -746,6 +836,7 @@ export function createSalesComposerModule(context) {
     const priceInput = row.querySelector('.sale-price');
     const toggleButton = row.querySelector('.toggle-sale-line');
     const removeButton = row.querySelector('.remove-sale-line');
+    const addFlavorButton = row.querySelector('.add-sale-flavor-row');
     initializeSearchableProductPickers(row);
 
     function syncExtraCatalogSelection() {
@@ -753,6 +844,7 @@ export function createSalesComposerModule(context) {
       if (!catalogItem) {
         row.dataset.extraCatalogName = '';
         row.dataset.extraAutoPrice = '';
+        updateSaleExtraFlavorSection(row);
         updateSaleRowTotal(row);
         renderSaleInfo();
         return;
@@ -762,13 +854,14 @@ export function createSalesComposerModule(context) {
       const previousAutoPrice = row.dataset.extraAutoPrice || '';
       const currentPriceValue = String(priceInput.value || '').trim();
       const nextAutoPrice = Number(catalogItem.price || 0) ? Number(catalogItem.price).toFixed(2) : '';
-      const shouldReplacePrice = !currentPriceValue || currentPriceValue === previousAutoPrice || previousCatalogName !== catalogItem.name;
+      const shouldReplacePrice = !currentPriceValue || currentPriceValue === previousAutoPrice || previousCatalogName !== catalogItem.value;
 
-      row.dataset.extraCatalogName = catalogItem.name;
+      row.dataset.extraCatalogName = catalogItem.value;
       row.dataset.extraAutoPrice = nextAutoPrice;
       if (shouldReplacePrice) {
         priceInput.value = nextAutoPrice;
       }
+      updateSaleExtraFlavorSection(row);
       updateSaleRowTotal(row);
       renderSaleInfo();
     }
@@ -783,6 +876,7 @@ export function createSalesComposerModule(context) {
 
     sourceInput.addEventListener('change', syncExtraCatalogSelection);
     quantityInput.addEventListener('input', () => {
+      updateSaleExtraFlavorSection(row);
       updateSaleRowTotal(row);
       renderSaleInfo();
     });
@@ -792,14 +886,20 @@ export function createSalesComposerModule(context) {
     });
     priceInput.addEventListener('blur', () => normalizeMoneyInputValue(priceInput));
     priceInput.addEventListener('blur', () => updateSaleRowTotal(row));
+    addFlavorButton.addEventListener('click', () => {
+      setActiveSaleRow(row);
+      addSaleFlavorRow(row);
+      updateSaleExtraFlavorSection(row);
+      renderSaleInfo();
+    });
     toggleButton.addEventListener('click', () => {
       const isEditing = row.classList.contains('is-editing');
       if (isEditing) {
         const parsed = parseSaleExtraLine(row);
-        if (!parsed.addon) {
+        if (!parsed.addon && !parsed.item) {
           if (saleStatus) {
             saleStatus.className = 'status error';
-            saleStatus.textContent = 'Completa nombre, cantidad y precio del extra antes de guardarlo.';
+            saleStatus.textContent = 'Completa el extra. Si es helado por sabores, asigna sus sabores exactos antes de guardarlo.';
           }
           return;
         }
@@ -931,7 +1031,8 @@ export function createSalesComposerModule(context) {
     }));
     select.addEventListener('change', () => {
       setActiveSaleRow(row);
-      row.dataset.flavorEditorOpen = 'false';
+      const selectedProduct = findProductById(select.value);
+      row.dataset.flavorEditorOpen = productUsesFreeComponents(selectedProduct) ? 'true' : 'false';
       row.querySelector('.sale-flavor-rows').innerHTML = '';
       row.querySelectorAll('.sale-addon-rows').forEach(container => {
         container.innerHTML = '';

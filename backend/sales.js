@@ -346,17 +346,28 @@ function createSalesHandlers({
             };
           }
 
+          const materiaPrimaExtraId = adicional?.materiaPrimaId !== undefined && adicional?.materiaPrimaId !== null ? String(adicional.materiaPrimaId) : "";
+          const materiaPrimaExtra = materiaPrimaExtraId
+            ? productos.find(entry => String(entry.id) === materiaPrimaExtraId)
+            : null;
+          if (materiaPrimaExtra) {
+            const materiaPrimaMode = getProductInventoryMode(materiaPrimaExtra);
+            if (materiaPrimaMode !== "materia-prima" || Number(materiaPrimaExtra.stock || 0) < cantidad) {
+              return null;
+            }
+          }
+
           return {
             id: null,
             tipo,
             nombre,
             cantidad,
             precio,
-            materiaPrimaId: null,
-            materiaPrimaNombre: null,
+            materiaPrimaId: materiaPrimaExtra ? materiaPrimaExtra.id : null,
+            materiaPrimaNombre: materiaPrimaExtra ? materiaPrimaExtra.nombre : null,
             toppingControlId: null,
             sauceControlId: null,
-            addonCategory: null,
+            addonCategory: materiaPrimaExtra ? "materia-prima" : null,
             costoUnitarioProvisional: null,
             costoTotalProvisional: null,
             costoUnitarioFinal: null,
