@@ -101,6 +101,7 @@ function createSalesHandlers({
         const itemPrecio = Number(item.precio);
         const itemSabores = Array.isArray(item.sabores) ? item.sabores : [];
         const itemAdicionales = Array.isArray(item.adicionales) ? item.adicionales : [];
+        const itemComponentes = Array.isArray(item.componentes) ? item.componentes : [];
 
         if ((!itemId && !itemNombre) || Number.isNaN(itemCantidad) || itemCantidad <= 0 || Number.isNaN(itemPrecio) || itemPrecio < 0) {
           return null;
@@ -117,6 +118,7 @@ function createSalesHandlers({
         const inventoryMode = getProductInventoryMode(producto);
         const requiresFlavorControl = inventoryMode === "helado-sabores" || inventoryMode === "mixto";
         const requiresRecipeControl = inventoryMode === "receta" || inventoryMode === "mixto";
+        const requiresFreeComponents = inventoryMode === "personalizado";
         const pelotasPorUnidad = requiresFlavorControl ? Number(producto.pelotasPorUnidad || 0) : 0;
         const totalPelotasRequeridas = requiresFlavorControl ? itemCantidad * pelotasPorUnidad : 0;
 
@@ -165,6 +167,44 @@ function createSalesHandlers({
         }
 
         if (inventoryMode === "directo" && Number(producto.stock || 0) < itemCantidad) {
+          return null;
+        }
+
+        const normalizedComponentes = itemComponentes.map(component => {
+          const componentId = component?.id !== undefined && component?.id !== null ? String(component.id) : "";
+          const componentName = String(component?.nombre || component?.name || "").trim();
+          const componentProduct = componentId
+            ? productos.find(entry => String(entry.id) === componentId)
+            : productos.find(entry => String(entry.nombre || "").trim().toLowerCase() === componentName.toLowerCase());
+          const componentMode = getProductInventoryMode(componentProduct);
+          const cantidad = Number(component?.cantidad);
+          const precio = component?.precio === undefined || component?.precio === null || component?.precio === "" ? 0 : Number(component.precio);
+
+          if (!componentProduct || !["materia-prima", "directo"].includes(componentMode) || Number.isNaN(cantidad) || cantidad <= 0 || Number.isNaN(precio) || precio < 0) {
+            return null;
+          }
+
+          const cantidadTotal = cantidad * itemCantidad;
+          if (Number(componentProduct.stock || 0) < cantidadTotal) {
+            return null;
+          }
+
+          return {
+            id: componentProduct.id,
+            nombre: componentProduct.nombre,
+            tipo: componentMode,
+            cantidad,
+            cantidadTotal,
+            precio,
+            stockDisponible: Number(componentProduct.stock || 0)
+          };
+        });
+
+        if (requiresFreeComponents && (!normalizedComponentes.length || normalizedComponentes.some(component => component === null))) {
+          return null;
+        }
+
+        if (!requiresFreeComponents && normalizedComponentes.some(component => component === null)) {
           return null;
         }
 
@@ -335,6 +375,7 @@ function createSalesHandlers({
           modoControl: inventoryMode,
           cantidad: itemCantidad,
           precio: itemPrecio,
+          componentes: requiresFreeComponents ? normalizedComponentes : [],
           ingredientes: normalizedIngredientes,
           pelotasPorUnidad: requiresFlavorControl ? pelotasPorUnidad : null,
           adicionales: normalizedAdicionales,
@@ -359,7 +400,30 @@ function createSalesHandlers({
         return res.status(400).json({ error: "Cada item debe tener producto válido, stock suficiente, cantidad y precio." });
       }
 
-      const totalFactura = validatedItems.reduce((sum, item) => sum + item.cantidad * item.precio + (Array.isArray(item.adicionales) ? item.adicionales.reduce((addonsSum, adicional) => addonsSum + Number(adicional.cantidad || 0) * Number(adicional.precio || 0), 0) : 0), 0);
+      const componentConsumptionById = new Map();
+      validatedItems.forEach(item => {
+        (item.componentes || []).forEach(component => {
+          const key = String(component.id || "");
+          componentConsumptionById.set(key, (componentConsumptionById.get(key) || 0) + Number(component.cantidadTotal || 0));
+        });
+      });
+      const invalidComponentStock = Array.from(componentConsumptionById.entries()).some(([componentId, totalQuantity]) => {
+        const componentProduct = productos.find(entry => String(entry.id) === componentId);
+        return !componentProduct || Number(componentProduct.stock || 0) < totalQuantity;
+      });
+      if (invalidComponentStock) {
+        return res.status(400).json({ error: "Uno o más componentes personalizados no tienen stock suficiente." });
+      }
+
+      const totalFactura = validatedItems.reduce((sum, item) => {
+        const addonsTotal = Array.isArray(item.adicionales)
+          ? item.adicionales.reduce((addonsSum, adicional) => addonsSum + Number(adicional.cantidad || 0) * Number(adicional.precio || 0), 0)
+          : 0;
+        const componentsTotal = Array.isArray(item.componentes)
+          ? item.componentes.reduce((componentSum, component) => componentSum + Number(component.cantidad || 0) * Number(component.precio || 0) * Number(item.cantidad || 0), 0)
+          : 0;
+        return sum + item.cantidad * item.precio + addonsTotal + componentsTotal;
+      }, 0);
       if (normalizedPaymentType === "contado" && normalizedCashReceived < totalFactura) {
         return res.status(400).json({ error: "El monto recibido debe cubrir el total de la factura." });
       }
@@ -376,6 +440,15 @@ function createSalesHandlers({
             const materiaPrima = productos.find(entry => String(entry.id) === String(ingredient.id));
             if (materiaPrima) {
               materiaPrima.stock -= Number(ingredient.cantidad || 0);
+            }
+          });
+        }
+
+        if (inventoryMode === "personalizado") {
+          (item.componentes || []).forEach(component => {
+            const componentProduct = productos.find(entry => String(entry.id) === String(component.id));
+            if (componentProduct) {
+              componentProduct.stock -= Number(component.cantidadTotal || 0);
             }
           });
         }

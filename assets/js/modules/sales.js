@@ -58,6 +58,7 @@ export function createSalesModule(context) {
     receivablesOverdue,
     receivablesTotal,
     calculateSaleAddonsTotal,
+    calculateSaleComponentsTotal,
   } = context;
 
   let payingSaleId = null;
@@ -82,9 +83,12 @@ export function createSalesModule(context) {
     if (!Array.isArray(venta?.items)) {
       return Number(venta?.precio || 0) * Number(venta?.cantidad || 0);
     }
-    return venta.items.reduce((sum, item) => (
-      sum + Number(item.precio || 0) * Number(item.cantidad || 0) + calculateSaleAddonsTotal(item.adicionales)
-    ), 0);
+    return venta.items.reduce((sum, item) => {
+      const itemQuantity = Number(item.cantidad || 0);
+      return sum + Number(item.precio || 0) * itemQuantity
+        + calculateSaleAddonsTotal(item.adicionales)
+        + calculateSaleComponentsTotal(item.componentes, itemQuantity);
+    }, 0);
   }
 
   function getSaleTotalAmount(venta) {
@@ -290,7 +294,10 @@ export function createSalesModule(context) {
       const items = Array.isArray(venta.items) ? venta.items : [{ nombre: venta.nombre, cantidad: venta.cantidad, precio: venta.precio }];
       const lastPayment = getLastRecordPayment(venta, getSaleTotalAmount(venta));
       return items.map(item => {
-        const total = Number(item.precio || 0) * Number(item.cantidad || 0) + calculateSaleAddonsTotal(item.adicionales);
+        const itemQuantity = Number(item.cantidad || 0);
+        const total = Number(item.precio || 0) * itemQuantity
+          + calculateSaleAddonsTotal(item.adicionales)
+          + calculateSaleComponentsTotal(item.componentes, itemQuantity);
         const costSummary = getSaleItemTrackedCostSummary(item);
         return {
           Factura: venta.documento || '',
@@ -473,7 +480,10 @@ export function createSalesModule(context) {
           ${sales.slice().reverse().flatMap(venta => {
             const items = Array.isArray(venta.items) ? venta.items : [{ nombre: venta.nombre, cantidad: venta.cantidad, precio: venta.precio }];
             return items.map(item => {
-              const total = Number(item.precio || 0) * Number(item.cantidad || 0) + calculateSaleAddonsTotal(item.adicionales);
+              const itemQuantity = Number(item.cantidad || 0);
+              const total = Number(item.precio || 0) * itemQuantity
+                + calculateSaleAddonsTotal(item.adicionales)
+                + calculateSaleComponentsTotal(item.componentes, itemQuantity);
               const personalization = formatSalePersonalization(item);
               const allowPaymentEditing = canManageSalePayment(venta);
               const actionLabel = getSalePaymentActionLabel(venta);

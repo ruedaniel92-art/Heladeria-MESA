@@ -4,6 +4,7 @@ export function createSalesComposerModule(context) {
     addSaleExtraButton,
     addSaleLineButton,
     buildOptions,
+    buildSaleComponentOptions,
     buildSaleExtraSelectOptions,
     buildToppingOptions,
     buildSauceOptions,
@@ -24,6 +25,7 @@ export function createSalesComposerModule(context) {
     normalizeMoneyInputValue,
     openSaleCajaButton,
     productUsesFlavors,
+    productUsesFreeComponents,
     productUsesRecipe,
     requiresPaymentReference,
     saleCajaFloat,
@@ -277,6 +279,41 @@ export function createSalesComposerModule(context) {
     return getSaleLineAddonState(row).addons;
   }
 
+  function getSaleLineComponents(row) {
+    if (isSaleExtraLineRow(row)) {
+      return [];
+    }
+    const selectedMap = new Map();
+    row.querySelectorAll('.sale-component-row').forEach(componentRow => {
+      const select = componentRow.querySelector('.sale-component-select');
+      const amountInput = componentRow.querySelector('.sale-component-amount');
+      const priceInput = componentRow.querySelector('.sale-component-price');
+      const id = String(select?.value || '');
+      const nombre = select?.selectedOptions?.[0]?.dataset.name || '';
+      const cantidad = Number(amountInput?.value);
+      const precio = String(priceInput?.value || '').trim() === '' ? 0 : Number(priceInput?.value);
+
+      if (!id || !nombre || Number.isNaN(cantidad) || cantidad <= 0 || Number.isNaN(precio) || precio < 0) {
+        return;
+      }
+
+      const existing = selectedMap.get(id) || { id, nombre, cantidad: 0, precio };
+      existing.cantidad += cantidad;
+      existing.precio = Math.max(Number(existing.precio || 0), precio);
+      selectedMap.set(id, existing);
+    });
+    return Array.from(selectedMap.values());
+  }
+
+  function calculateSaleComponentsTotal(row) {
+    if (isSaleExtraLineRow(row)) {
+      return 0;
+    }
+    const quantity = Number(row.querySelector('.sale-quantity')?.value);
+    const lineQuantity = Number.isNaN(quantity) ? 0 : quantity;
+    return getSaleLineComponents(row).reduce((sum, component) => sum + Number(component.cantidad || 0) * Number(component.precio || 0) * lineQuantity, 0);
+  }
+
   function calculateSaleAddonsTotal(addons) {
     return (Array.isArray(addons) ? addons : []).reduce((sum, addon) => sum + Number(addon.cantidad || 0) * Number(addon.precio || 0), 0);
   }
@@ -288,8 +325,9 @@ export function createSalesComposerModule(context) {
       return Number.isNaN(quantity) || Number.isNaN(price) ? 0 : quantity * price;
     }
     const addonsTotal = calculateSaleAddonsTotal(getSaleLineAddons(row));
+    const componentsTotal = calculateSaleComponentsTotal(row);
     const baseTotal = Number.isNaN(quantity) || Number.isNaN(price) ? 0 : quantity * price;
-    return baseTotal + addonsTotal;
+    return baseTotal + addonsTotal + componentsTotal;
   }
 
   function updateSaleRowTotal(row) {
@@ -336,7 +374,11 @@ export function createSalesComposerModule(context) {
     }
     const selectedFlavors = getSaleLineSelectedFlavors(row);
     const addons = getSaleLineAddons(row);
+    const components = getSaleLineComponents(row);
     const chips = [
+      ...components.map(component => `
+        <span class="sale-flavor-chip">${escapeHtml(component.nombre)} <strong>x${Number(component.cantidad || 0)}</strong>${Number(component.precio || 0) > 0 ? ` Â· ${escapeHtml(formatCurrency(Number(component.cantidad || 0) * Number(component.precio || 0)))}` : ''}</span>
+      `),
       ...selectedFlavors.map(flavor => `
         <span class="sale-flavor-chip">${escapeHtml(flavor.nombre)} <strong>${Number(flavor.porciones || 0)}</strong></span>
       `),
@@ -359,6 +401,8 @@ export function createSalesComposerModule(context) {
     const expectedScoops = getExpectedScoopsForLine(row);
     const assignedScoops = getSaleLineSelectedFlavors(row).reduce((sum, flavor) => sum + Number(flavor.porciones || 0), 0);
     const addonsTotal = calculateSaleAddonsTotal(getSaleLineAddons(row));
+    const components = getSaleLineComponents(row);
+    const componentsTotal = calculateSaleComponentsTotal(row);
 
     if (flavorSummary) {
       flavorSummary.innerHTML = buildSaleFlavorSummaryMarkup(row);
@@ -367,6 +411,8 @@ export function createSalesComposerModule(context) {
       const isOpen = row.dataset.flavorEditorOpen === 'true';
       const detail = productUsesFlavors(producto)
         ? `${assignedScoops}/${expectedScoops} pelotas${addonsTotal ? ` y ${formatCurrency(addonsTotal)} en extras` : ''}`
+        : productUsesFreeComponents(producto)
+          ? `${components.length} componente(s)${componentsTotal ? ` · ${formatCurrency(componentsTotal)}` : ''}`
         : addonsTotal
           ? formatCurrency(addonsTotal)
           : 'sin cambios';
@@ -424,6 +470,45 @@ export function createSalesComposerModule(context) {
     select.value = selectedFlavorId;
     select.dataset.name = select.selectedOptions[0]?.dataset.name || '';
     bindSaleFlavorRowEvents(row, flavorRow);
+    syncSaleFlavorSummary(row);
+  }
+
+  function bindSaleComponentRowEvents(row, componentRow) {
+    componentRow.querySelectorAll('input, select').forEach(input => {
+      input.addEventListener('input', () => {
+        syncSaleFlavorSummary(row);
+        updateSaleRowTotal(row);
+        renderSaleInfo();
+      });
+      input.addEventListener('change', () => {
+        syncSaleFlavorSummary(row);
+        updateSaleRowTotal(row);
+        renderSaleInfo();
+      });
+    });
+
+    componentRow.querySelector('.remove-sale-component-row').addEventListener('click', () => {
+      componentRow.remove();
+      syncSaleFlavorSummary(row);
+      updateSaleRowTotal(row);
+      renderSaleInfo();
+    });
+  }
+
+  function addSaleComponentRow(row, component = {}) {
+    const rowsContainer = row.querySelector('.sale-component-rows');
+    const componentRow = document.createElement('div');
+    componentRow.className = 'sale-component-row';
+    componentRow.innerHTML = `
+      <select class="sale-component-select">
+        ${buildSaleComponentOptions(component.id || '')}
+      </select>
+      <input type="number" class="sale-component-amount" min="0.01" step="0.01" placeholder="Cant. por unidad" value="${component.cantidad !== undefined ? escapeHtml(component.cantidad) : ''}" />
+      <input type="number" class="sale-component-price" min="0" step="0.01" placeholder="Extra C$" value="${component.precio !== undefined ? escapeHtml(component.precio) : ''}" />
+      <button type="button" class="secondary-btn remove-sale-component-row">Quitar</button>
+    `;
+    rowsContainer.appendChild(componentRow);
+    bindSaleComponentRowEvents(row, componentRow);
     syncSaleFlavorSummary(row);
   }
 
@@ -497,6 +582,9 @@ export function createSalesComposerModule(context) {
     const flavorField = row.querySelector('.sale-flavor-field');
     const flavorEditor = row.querySelector('.sale-flavor-editor');
     const flavorToggleButton = row.querySelector('.toggle-sale-flavor-editor');
+    const componentSection = row.querySelector('.sale-component-section');
+    const componentRows = row.querySelector('.sale-component-rows');
+    const addComponentButton = row.querySelector('.add-sale-component-row');
     const flavorSection = row.querySelector('.sale-flavor-section');
     const flavorRows = row.querySelector('.sale-flavor-rows');
     const addFlavorButton = row.querySelector('.add-sale-flavor-row');
@@ -504,13 +592,15 @@ export function createSalesComposerModule(context) {
     const addAddonButton = row.querySelector('.add-sale-addon-row');
     const addSauceAddonButton = row.querySelector('.add-sale-sauce-addon-row');
     const producto = findProductById(select.value);
-    const shouldShowCustomization = Boolean(producto) && (productUsesFlavors(producto) || productUsesRecipe(producto));
+    const shouldShowComponents = Boolean(producto) && productUsesFreeComponents(producto);
+    const shouldShowCustomization = Boolean(producto) && (shouldShowComponents || productUsesFlavors(producto) || productUsesRecipe(producto));
     const shouldShowFlavors = shouldShowSaleFlavorSection(producto);
 
     flavorField.classList.toggle('field-hidden', !shouldShowCustomization);
     flavorToggleButton.classList.toggle('field-hidden', !shouldShowCustomization);
     if (!shouldShowCustomization) {
       row.dataset.flavorEditorOpen = 'false';
+      componentRows.innerHTML = '';
       flavorRows.innerHTML = '';
       addonContainers.forEach(container => {
         container.innerHTML = '';
@@ -520,6 +610,9 @@ export function createSalesComposerModule(context) {
       return;
     }
 
+    componentSection.classList.toggle('field-hidden', !shouldShowComponents);
+    componentSection.hidden = !shouldShowComponents;
+    componentSection.style.display = shouldShowComponents ? '' : 'none';
     flavorSection.classList.toggle('field-hidden', !shouldShowFlavors);
     flavorSection.hidden = !shouldShowFlavors;
     flavorSection.style.display = shouldShowFlavors ? '' : 'none';
@@ -535,11 +628,16 @@ export function createSalesComposerModule(context) {
 
     flavorToggleButton.disabled = false;
 
+    if (shouldShowComponents && !componentRows.querySelector('.sale-component-row') && row.classList.contains('is-editing')) {
+      addSaleComponentRow(row);
+    }
+
     if (shouldShowFlavors && !flavorRows.querySelector('.sale-flavor-row') && row.classList.contains('is-editing')) {
       addSaleFlavorRow(row);
     }
 
     flavorEditor.classList.toggle('field-hidden', row.dataset.flavorEditorOpen !== 'true');
+    addComponentButton.disabled = !row.classList.contains('is-editing') || !shouldShowComponents;
     addFlavorButton.disabled = !row.classList.contains('is-editing') || !shouldShowFlavors || !getAvailableSaleFlavors().length;
     addAddonButton.disabled = !row.classList.contains('is-editing');
     addSauceAddonButton.disabled = !row.classList.contains('is-editing');
@@ -547,6 +645,15 @@ export function createSalesComposerModule(context) {
       flavorRow.querySelector('.sale-flavor-select').disabled = !row.classList.contains('is-editing');
       flavorRow.querySelector('.sale-flavor-amount').disabled = !row.classList.contains('is-editing');
       flavorRow.querySelector('.remove-sale-flavor-row').disabled = !row.classList.contains('is-editing');
+    });
+    componentRows.querySelectorAll('.sale-component-row').forEach(componentRow => {
+      const selectInput = componentRow.querySelector('.sale-component-select');
+      const currentValue = selectInput.value;
+      selectInput.innerHTML = buildSaleComponentOptions(currentValue);
+      selectInput.value = currentValue;
+      componentRow.querySelectorAll('input, select, button').forEach(control => {
+        control.disabled = !row.classList.contains('is-editing');
+      });
     });
     addonContainers.forEach(container => container.querySelectorAll('.sale-addon-row').forEach(addonRow => {
       const toppingSelect = addonRow.querySelector('.sale-addon-topping');
@@ -568,6 +675,9 @@ export function createSalesComposerModule(context) {
 
     if (!shouldShowFlavors) {
       flavorRows.querySelectorAll('.sale-flavor-row').forEach(flavorRow => flavorRow.remove());
+    }
+    if (!shouldShowComponents) {
+      componentRows.querySelectorAll('.sale-component-row').forEach(componentRow => componentRow.remove());
     }
 
     syncSaleFlavorSummary(row);
@@ -753,6 +863,16 @@ export function createSalesComposerModule(context) {
             <button type="button" class="secondary-btn close-sale-flavor-editor">Cerrar</button>
           </div>
           <div class="sale-flavor-summary sale-flavor-modal-summary"></div>
+          <div class="sale-customization-section sale-component-section field-hidden">
+            <div class="sale-customization-section-header">
+              <strong>Componentes libres</strong>
+              <span>El cliente elige todo; no hay base obligatoria.</span>
+            </div>
+            <div class="sale-component-rows"></div>
+            <div class="sale-flavor-editor-actions">
+              <button type="button" class="secondary-btn add-sale-component-row">Agregar componente</button>
+            </div>
+          </div>
           <div class="sale-customization-section sale-flavor-section field-hidden">
             <div class="sale-customization-section-header">
               <strong>Helado por sabores</strong>
@@ -791,6 +911,7 @@ export function createSalesComposerModule(context) {
     const toggleButton = row.querySelector('.toggle-sale-line');
     const toggleFlavorEditorButton = row.querySelector('.toggle-sale-flavor-editor');
     const closeFlavorEditorButton = row.querySelector('.close-sale-flavor-editor');
+    const addComponentButton = row.querySelector('.add-sale-component-row');
     const addFlavorButton = row.querySelector('.add-sale-flavor-row');
     const addAddonButton = row.querySelector('.add-sale-addon-row');
     const addSauceAddonButton = row.querySelector('.add-sale-sauce-addon-row');
@@ -839,6 +960,12 @@ export function createSalesComposerModule(context) {
       row.dataset.flavorEditorOpen = 'false';
       updateSaleRowFlavorSection(row);
     });
+    addComponentButton.addEventListener('click', () => {
+      setActiveSaleRow(row);
+      addSaleComponentRow(row);
+      updateSaleRowFlavorSection(row);
+      renderSaleInfo();
+    });
     addFlavorButton.addEventListener('click', () => {
       setActiveSaleRow(row);
       addSaleFlavorRow(row);
@@ -865,6 +992,7 @@ export function createSalesComposerModule(context) {
         const quantityValue = Number(row.querySelector('.sale-quantity').value);
         const priceValue = Number(row.querySelector('.sale-price').value);
         const producto = findProductById(select.value);
+        const selectedComponents = getSaleLineComponents(row);
         const selectedFlavors = getSaleLineSelectedFlavors(row);
         const addonState = getSaleLineAddonState(row);
         const expectedScoops = getExpectedScoopsForLine(row);
@@ -880,6 +1008,13 @@ export function createSalesComposerModule(context) {
           if (saleStatus) {
             saleStatus.className = 'status error';
             saleStatus.textContent = 'Cada topping incluido, salsa, aderezo o extra debe tener nombre, cantidad y precio validos cuando corresponda.';
+          }
+          return;
+        }
+        if (productUsesFreeComponents(producto) && !selectedComponents.length) {
+          if (saleStatus) {
+            saleStatus.className = 'status error';
+            saleStatus.textContent = 'Agrega al menos un componente elegido por el cliente.';
           }
           return;
         }
@@ -981,8 +1116,10 @@ export function createSalesComposerModule(context) {
     const expectedScoops = productRows.reduce((sum, row) => sum + getExpectedScoopsForLine(row), 0);
     const assignedScoops = productRows.reduce((sum, row) => sum + getSaleLineSelectedFlavors(row).reduce((rowSum, flavor) => rowSum + Number(flavor.porciones || 0), 0), 0);
     const modalAddonsTotal = productRows.reduce((sum, row) => sum + calculateSaleAddonsTotal(getSaleLineAddons(row)), 0);
+    const modalComponentsTotal = productRows.reduce((sum, row) => sum + calculateSaleComponentsTotal(row), 0);
     const extraLinesTotal = extraRows.reduce((sum, row) => sum + calculateSaleLineTotal(row), 0);
     saleInfo.innerHTML = `<strong>${rows.length} líneas</strong> · Productos: ${productRows.length}${extraRows.length ? ` · Extras: ${extraRows.length}` : ''} · Total estimado: ${formattedTotal}${modalAddonsTotal || extraLinesTotal ? ` · Adicionales: ${formatCurrency(modalAddonsTotal + extraLinesTotal)}` : ''}${expectedScoops ? ` · Pelotas asignadas: ${assignedScoops}/${expectedScoops}` : ''}`;
+    saleInfo.innerHTML = `<strong>${rows.length} lineas</strong> - Productos: ${productRows.length}${extraRows.length ? ` - Extras: ${extraRows.length}` : ''} - Total estimado: ${formattedTotal}${modalAddonsTotal || modalComponentsTotal || extraLinesTotal ? ` - Personalizacion: ${formatCurrency(modalAddonsTotal + modalComponentsTotal + extraLinesTotal)}` : ''}${expectedScoops ? ` - Pelotas asignadas: ${assignedScoops}/${expectedScoops}` : ''}`;
     saleTotal.textContent = formattedTotal;
     updateSaleCashReconciliation();
   }
@@ -1070,12 +1207,14 @@ export function createSalesComposerModule(context) {
 
   return {
     getSaleLineSelectedFlavors,
+    getSaleLineComponents,
     isSaleExtraLineRow,
     isSaleProductLineRow,
     parseSaleExtraLine,
     getSaleLineAddonState,
     getSaleLineAddons,
     calculateSaleAddonsTotal,
+    calculateSaleComponentsTotal,
     calculateSaleTotalAmount,
     getTargetSaleRowForExtra,
     addSaleExtraLine,

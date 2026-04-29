@@ -45,6 +45,7 @@ export function createInventoryModule(context) {
     if (mode === 'receta') return 'receta';
     if (mode === 'helado-sabores') return 'helado-sabores';
     if (mode === 'mixto') return 'mixto';
+    if (['personalizado', 'personalizado-libre', 'armado-libre'].includes(mode)) return 'personalizado';
     if (mode === 'materia-prima') return 'materia-prima';
     return '';
   }
@@ -175,6 +176,20 @@ export function createInventoryModule(context) {
             });
           });
         }
+
+        (item.componentes || []).forEach(component => {
+          if (String(component.id || '') !== productKey) {
+            return;
+          }
+          pushMovement({
+            date: venta.fecha,
+            type: 'Venta personalizada',
+            document,
+            detail: `Componente de ${soldProduct?.nombre || item.nombre || 'producto personalizado'}`,
+            output: Number(component.cantidadTotal || (Number(component.cantidad || 0) * soldQuantity)),
+            sortPriority: 35
+          });
+        });
 
         (item.sabores || []).forEach(flavor => {
           if (String(flavor.materiaPrimaId || '') !== productKey) {

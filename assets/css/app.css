@@ -2220,12 +2220,14 @@
       margin-top: -2px;
     }
 
-    .sale-flavor-rows {
+    .sale-flavor-rows,
+    .sale-component-rows {
       display: grid;
       gap: 10px;
     }
 
-    .sale-flavor-row {
+    .sale-flavor-row,
+    .sale-component-row {
       display: grid;
       grid-template-columns: minmax(0, 1.5fr) 110px auto;
       gap: 10px;
@@ -2236,13 +2238,20 @@
       border: 1px solid rgba(203, 213, 225, 0.9);
     }
 
+    .sale-component-row {
+      grid-template-columns: minmax(0, 1.4fr) 110px 110px auto;
+    }
+
     .sale-flavor-row input,
-    .sale-flavor-row select {
+    .sale-flavor-row select,
+    .sale-component-row input,
+    .sale-component-row select {
       width: 100%;
       margin: 0;
     }
 
-    .sale-flavor-row button {
+    .sale-flavor-row button,
+    .sale-component-row button {
       width: auto;
       min-width: 0;
       white-space: nowrap;
@@ -2455,7 +2464,8 @@
         padding: 16px;
       }
 
-      .sale-flavor-row {
+      .sale-flavor-row,
+      .sale-component-row {
         grid-template-columns: 1fr;
       }
 
@@ -2900,6 +2910,7 @@
     body.theme-dark .purchase-row,
     body.theme-dark .sale-line,
     body.theme-dark .sale-flavor-row,
+    body.theme-dark .sale-component-row,
     body.theme-dark .sale-addon-row {
       background: rgba(15, 23, 42, 0.92);
       color: var(--text);

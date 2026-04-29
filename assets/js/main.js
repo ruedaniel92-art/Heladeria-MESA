@@ -1048,6 +1048,13 @@
       return (Array.isArray(addons) ? addons : []).reduce((sum, addon) => sum + Number(addon.cantidad || 0) * Number(addon.precio || 0), 0);
     }
 
+    function calculateSaleComponentsTotal(components, itemQuantity = 1) {
+      const quantity = Number(itemQuantity || 0);
+      return (Array.isArray(components) ? components : []).reduce((sum, component) => (
+        sum + Number(component.cantidad || 0) * Number(component.precio || 0) * quantity
+      ), 0);
+    }
+
     ({
       setSalePayableStatus,
       updateSalePayableReferenceVisibility,
@@ -1137,6 +1144,7 @@
       receivablesOverdue,
       receivablesTotal,
       calculateSaleAddonsTotal,
+      calculateSaleComponentsTotal,
     }));
 
     ({
@@ -1293,6 +1301,7 @@
       addSaleLineButton,
       buildOptions,
       buildSaleExtraSelectOptions,
+      buildSaleComponentOptions,
       buildToppingOptions,
       buildSauceOptions,
       escapeHtml,
@@ -1312,6 +1321,7 @@
       normalizeMoneyInputValue,
       openSaleCajaButton,
       productUsesFlavors,
+      productUsesFreeComponents,
       productUsesRecipe,
       requiresPaymentReference,
       saleCajaFloat,
@@ -1706,6 +1716,28 @@
       return state.productos.filter(producto => getProductInventoryMode(producto) !== 'materia-prima');
     }
 
+    function productUsesFreeComponents(producto) {
+      return getProductInventoryMode(producto) === 'personalizado';
+    }
+
+    function getFreeComponentProducts() {
+      return state.productos.filter(producto => {
+        const mode = getProductInventoryMode(producto);
+        return mode === 'materia-prima' || mode === 'directo';
+      });
+    }
+
+    function buildSaleComponentOptions(selectedId = '') {
+      const products = getFreeComponentProducts();
+      if (!products.length) {
+        return '<option value="">No hay componentes disponibles</option>';
+      }
+      return `<option value="">Seleccionar componente</option>${products.map(producto => {
+        const stockLabel = Number(producto.stock || 0);
+        return `<option value="${escapeHtml(producto.id)}" data-name="${escapeHtml(producto.nombre)}" ${String(producto.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(producto.nombre)} · stock ${stockLabel}</option>`;
+      }).join('')}`;
+    }
+
     function renderInventoryModeLabel(producto) {
       const mode = getProductInventoryMode(producto);
       if (mode === 'materia-prima') return 'Materia prima';
@@ -1713,6 +1745,7 @@
       if (mode === 'receta') return 'Receta';
       if (mode === 'helado-sabores') return 'Helado por sabores';
       if (mode === 'mixto') return 'Mixto';
+      if (mode === 'personalizado') return 'Personalizado libre';
       return 'N/A';
     }
 
@@ -2966,7 +2999,8 @@
       const isMateriaPrima = mode === 'materia-prima';
       const usesRecipe = mode === 'receta' || mode === 'mixto';
       const usesFlavors = mode === 'helado-sabores' || mode === 'mixto';
-      const hasExtraFields = isMateriaPrima || usesRecipe || usesFlavors;
+      const usesFreeComponents = mode === 'personalizado';
+      const hasExtraFields = isMateriaPrima || usesRecipe || usesFlavors || usesFreeComponents;
 
       if (ingresoProductFormPanel) {
         ingresoProductFormPanel.classList.toggle('has-extra-fields', hasExtraFields);
@@ -2994,7 +3028,7 @@
       if (!usesFlavors) {
         scoopsPerUnitInput.value = '';
       }
-      if (usesRecipe || usesFlavors) {
+      if (usesRecipe || usesFlavors || usesFreeComponents) {
         stockMinField.style.display = 'none';
         stockMinInput.disabled = true;
         stockMinInput.required = false;
@@ -4451,8 +4485,10 @@
       const expectedScoops = productRows.reduce((sum, row) => sum + getExpectedScoopsForLine(row), 0);
       const assignedScoops = productRows.reduce((sum, row) => sum + getSaleLineSelectedFlavors(row).reduce((rowSum, flavor) => rowSum + Number(flavor.porciones || 0), 0), 0);
       const modalAddonsTotal = productRows.reduce((sum, row) => sum + calculateSaleAddonsTotal(getSaleLineAddons(row)), 0);
+      const modalComponentsTotal = productRows.reduce((sum, row) => sum + (salesComposer?.calculateSaleComponentsTotal?.(row) || 0), 0);
       const extraLinesTotal = extraRows.reduce((sum, row) => sum + calculateSaleLineTotal(row), 0);
       saleInfo.innerHTML = `<strong>${rows.length} líneas</strong> · Productos: ${productRows.length}${extraRows.length ? ` · Extras: ${extraRows.length}` : ''} · Total estimado: ${formattedTotal}${modalAddonsTotal || extraLinesTotal ? ` · Adicionales: ${formatCurrency(modalAddonsTotal + extraLinesTotal)}` : ''}${expectedScoops ? ` · Pelotas asignadas: ${assignedScoops}/${expectedScoops}` : ''}`;
+      saleInfo.innerHTML = `<strong>${rows.length} lineas</strong> - Productos: ${productRows.length}${extraRows.length ? ` - Extras: ${extraRows.length}` : ''} - Total estimado: ${formattedTotal}${modalAddonsTotal || modalComponentsTotal || extraLinesTotal ? ` - Personalizacion: ${formatCurrency(modalAddonsTotal + modalComponentsTotal + extraLinesTotal)}` : ''}${expectedScoops ? ` - Pelotas asignadas: ${assignedScoops}/${expectedScoops}` : ''}`;
       saleTotal.textContent = formattedTotal;
       updateSaleCashReconciliation();
     }
@@ -4504,7 +4540,10 @@
 
       const allFinal = trackedEntries.every(entry => entry.state === 'final');
       const totalCost = trackedEntries.reduce((sum, entry) => sum + (allFinal ? entry.final : (entry.final > 0 ? entry.final : entry.provisional)), 0);
-      const totalSale = Number(item?.precio || 0) * Number(item?.cantidad || 0) + calculateSaleAddonsTotal(item?.adicionales);
+      const itemQuantity = Number(item?.cantidad || 0);
+      const totalSale = Number(item?.precio || 0) * itemQuantity
+        + calculateSaleAddonsTotal(item?.adicionales)
+        + calculateSaleComponentsTotal(item?.componentes, itemQuantity);
 
       return {
         hasTrackedCost: true,
@@ -4535,6 +4574,9 @@
     }
 
     function formatSalePersonalization(item) {
+      const componentSummary = Array.isArray(item?.componentes) && item.componentes.length
+        ? item.componentes.map(component => `${component.nombre} x${Number(component.cantidad || 0)}${Number(component.precio || 0) > 0 ? ` (${formatCurrency(Number(component.cantidad || 0) * Number(component.precio || 0))})` : ''}`).join(', ')
+        : '';
       const flavorSummary = Array.isArray(item?.sabores) && item.sabores.length
         ? item.sabores.map(flavor => `${flavor.nombre} (${Number(flavor.porciones || 0)})`).join(', ')
         : '';
@@ -4542,10 +4584,7 @@
         ? item.adicionales.map(addon => `${formatSaleAddonTypeLabel(addon.tipo, addon)}: ${addon.nombre} x${Number(addon.cantidad || 0)}${Number(addon.precio || 0) > 0 ? ` (${formatCurrency(Number(addon.cantidad || 0) * Number(addon.precio || 0))})` : ''}`).join(', ')
         : '';
 
-      if (flavorSummary && addonSummary) {
-        return `${flavorSummary} | ${addonSummary}`;
-      }
-      return flavorSummary || addonSummary || 'Sin personalización';
+      return [componentSummary, flavorSummary, addonSummary].filter(Boolean).join(' | ') || 'Sin personalizacion';
     }
 
     function formatInvoicePaymentType(type) {
@@ -6670,6 +6709,7 @@
       getExternalDebtOriginalAmount,
       calculateSaleInvoiceTotal,
       calculateSaleAddonsTotal,
+      calculateSaleComponentsTotal,
       calculateInvoiceTotal,
       formatDate,
       dashboardCashflowFilterModeInput,
@@ -7965,12 +8005,13 @@
         const price = Number(row.querySelector('.sale-price').value);
         const id = select.value;
         const nombre = select.selectedOptions[0]?.dataset.name || '';
+        const componentes = salesComposer.getSaleLineComponents(row);
         const sabores = salesComposer.getSaleLineSelectedFlavors(row);
         const adicionales = [
           ...salesComposer.getSaleLineAddons(row),
           ...(extraLinesByParent.get(String(row.dataset.lineId || '')) || [])
         ];
-        return { id, nombre, cantidad: quantity, precio: price, sabores, adicionales };
+        return { id, nombre, cantidad: quantity, precio: price, componentes, sabores, adicionales };
       }).filter(item => item.id && item.cantidad > 0 && !Number.isNaN(item.precio));
 
       if (!documentValue || !customerValue || !dateValue || !items.length) {
@@ -8004,6 +8045,11 @@
         return productUsesFlavors(producto) && (!Array.isArray(item.sabores) || !item.sabores.length);
       });
 
+      const missingComponents = items.find(item => {
+        const producto = findProductById(item.id);
+        return productUsesFreeComponents(producto) && (!Array.isArray(item.componentes) || !item.componentes.length);
+      });
+
       const invalidFlavorDistribution = items.find(item => {
         const producto = findProductById(item.id);
         if (!productUsesFlavors(producto)) return false;
@@ -8016,6 +8062,13 @@
         saleStatus.className = 'status error';
         saleStatus.textContent = 'Las líneas de pelotitas deben llevar al menos un sabor seleccionado.';
         showError('Las líneas de pelotitas deben llevar al menos un sabor seleccionado.');
+        return;
+      }
+
+      if (missingComponents) {
+        saleStatus.className = 'status error';
+        saleStatus.textContent = 'Los productos personalizados libres deben llevar al menos un componente elegido.';
+        showError('Los productos personalizados libres deben llevar al menos un componente elegido.');
         return;
       }
 

@@ -71,7 +71,7 @@ function createConsumableHelpers({
     return getVentas().reduce((total, venta) => {
       const items = Array.isArray(venta.items) ? venta.items : [];
       return total + items.reduce((sum, item) => {
-        const flavors = Array.isArray(item.getSabores()) ? item.getSabores() : [];
+        const flavors = Array.isArray(item.sabores) ? item.sabores : [];
         return sum + flavors.reduce((flavorSum, flavor) => {
           return String(flavor.id || '') === normalizedFlavorId
             ? flavorSum + Number(flavor.porciones || 0)
@@ -434,7 +434,7 @@ function createConsumableHelpers({
       const items = Array.isArray(venta.items) ? venta.items : [];
       items.forEach(item => {
         if (kind === 'bucket') {
-          const saboresItem = Array.isArray(item.getSabores()) ? item.getSabores() : [];
+          const saboresItem = Array.isArray(item.sabores) ? item.sabores : [];
           saboresItem.forEach(flavor => {
             if (String(flavor[config.controlLinkField] || '') !== String(control.id)) {
               return;

@@ -9,6 +9,7 @@ function normalizeInventoryMode(value) {
   if (normalizedValue === "receta") return "receta";
   if (normalizedValue === "helado-sabores") return "helado-sabores";
   if (normalizedValue === "mixto") return "mixto";
+  if (["personalizado", "personalizado-libre", "armado-libre"].includes(normalizedValue)) return "personalizado";
   if (normalizedValue === "materia-prima") return "materia-prima";
   return "";
 }

@@ -81,6 +81,198 @@ module.exports = [
     }
   },
   {
+    name: "venta personalizada libre descuenta componentes elegidos",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          async function createProduct(payload) {
+            const response = await fetch(`${baseUrl}/productos`, {
+              method: "POST",
+              headers: jsonAuthHeaders(token),
+              body: JSON.stringify(payload)
+            });
+            assert.equal(response.status, 201);
+            return (await response.json()).producto;
+          }
+
+          const milk = await createProduct({
+            nombre: "Leche para batido",
+            tipo: "materia prima",
+            stockMin: 1,
+            medida: "litro",
+            rendimientoPorCompra: 1
+          });
+          const cookie = await createProduct({
+            nombre: "Galleta directa",
+            tipo: "productos",
+            stockMin: 1,
+            precio: 8,
+            modoControl: "directo"
+          });
+          const shake = await createProduct({
+            nombre: "Batido personalizado",
+            tipo: "productos",
+            stockMin: 0,
+            precio: 80,
+            modoControl: "personalizado"
+          });
+
+          for (const [productId, quantity] of [[milk.id, 10], [cookie.id, 5]]) {
+            const inventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+              method: "POST",
+              headers: jsonAuthHeaders(token),
+              body: JSON.stringify({ productId, quantity, unitCost: 1 })
+            });
+            assert.equal(inventoryResponse.status, 201);
+          }
+
+          const saleResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              cliente: "Cliente personalizado",
+              fecha: "2026-04-28",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 200,
+              items: [{
+                id: shake.id,
+                cantidad: 2,
+                precio: 80,
+                componentes: [
+                  { id: milk.id, cantidad: 1.5 },
+                  { id: cookie.id, cantidad: 1, precio: 5 }
+                ]
+              }]
+            })
+          });
+          assert.equal(saleResponse.status, 201);
+          const saleResult = await saleResponse.json();
+          assert.equal(saleResult.venta.totalAmount, 170);
+          assert.equal(saleResult.venta.items[0].componentes.length, 2);
+          assert.equal(saleResult.venta.items[0].componentes[0].cantidadTotal, 3);
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario`, {
+            headers: authHeaders(token)
+          });
+          assert.equal(inventoryResponse.status, 200);
+          const inventory = await inventoryResponse.json();
+          assert.equal(inventory.productos.find(item => item.id === milk.id).stock, 7);
+          assert.equal(inventory.productos.find(item => item.id === cookie.id).stock, 3);
+          assert.equal(inventory.productos.find(item => item.id === shake.id).stock, 0);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
+    name: "venta personalizada libre exige componentes con stock",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          const rawResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Banano para batido",
+              tipo: "materia prima",
+              stockMin: 1,
+              medida: "unidad",
+              rendimientoPorCompra: 1
+            })
+          });
+          assert.equal(rawResponse.status, 201);
+          const raw = (await rawResponse.json()).producto;
+
+          const customResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Especial libre",
+              tipo: "productos",
+              stockMin: 0,
+              precio: 50,
+              modoControl: "personalizado"
+            })
+          });
+          assert.equal(customResponse.status, 201);
+          const custom = (await customResponse.json()).producto;
+
+          const missingComponentsResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              cliente: "Cliente sin componentes",
+              fecha: "2026-04-28",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 50,
+              items: [{ id: custom.id, cantidad: 1, precio: 50 }]
+            })
+          });
+          assert.equal(missingComponentsResponse.status, 400);
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({ productId: raw.id, quantity: 1, unitCost: 1 })
+          });
+          assert.equal(inventoryResponse.status, 201);
+
+          const insufficientStockResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              cliente: "Cliente sin stock",
+              fecha: "2026-04-28",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 50,
+              items: [{
+                id: custom.id,
+                cantidad: 1,
+                precio: 50,
+                componentes: [{ id: raw.id, cantidad: 2 }]
+              }]
+            })
+          });
+          assert.equal(insufficientStockResponse.status, 400);
+
+          const repeatedComponentResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              cliente: "Cliente componente repetido",
+              fecha: "2026-04-28",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 50,
+              items: [{
+                id: custom.id,
+                cantidad: 1,
+                precio: 50,
+                componentes: [
+                  { id: raw.id, cantidad: 0.75 },
+                  { id: raw.id, cantidad: 0.75 }
+                ]
+              }]
+            })
+          });
+          assert.equal(repeatedComponentResponse.status, 400);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
     name: "abono de venta a crédito actualiza saldo tras la extracción",
     async run() {
       const { app, restore } = loadApp();

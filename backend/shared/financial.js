@@ -30,7 +30,10 @@ function calculateSaleInvoiceTotal(venta) {
     const extrasTotal = Array.isArray(item.adicionales)
       ? item.adicionales.reduce((addonSum, adicional) => addonSum + Number(adicional.cantidad || 0) * Number(adicional.precio || 0), 0)
       : 0;
-    return sum + Number(item.precio || 0) * Number(item.cantidad || 0) + extrasTotal;
+    const componentsTotal = Array.isArray(item.componentes)
+      ? item.componentes.reduce((componentSum, component) => componentSum + Number(component.cantidad || 0) * Number(component.precio || 0) * Number(item.cantidad || 0), 0)
+      : 0;
+    return sum + Number(item.precio || 0) * Number(item.cantidad || 0) + extrasTotal + componentsTotal;
   }, 0);
 }
 

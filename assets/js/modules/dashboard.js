@@ -8,6 +8,7 @@ export function createDashboardModule(context) {
     getExternalDebtOriginalAmount,
     calculateSaleInvoiceTotal,
     calculateSaleAddonsTotal,
+    calculateSaleComponentsTotal,
     calculateInvoiceTotal,
     formatDate,
     dashboardCashflowFilterModeInput,
@@ -87,7 +88,9 @@ export function createDashboardModule(context) {
           amount: 0
         };
         current.quantity += Number(item.cantidad || 0);
-        current.amount += Number(item.cantidad || 0) * Number(item.precio || 0) + calculateSaleAddonsTotal(item.adicionales);
+        current.amount += Number(item.cantidad || 0) * Number(item.precio || 0)
+          + calculateSaleAddonsTotal(item.adicionales)
+          + calculateSaleComponentsTotal(item.componentes, item.cantidad);
         productMap.set(key, current);
       });
     });

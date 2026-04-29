@@ -57,6 +57,10 @@ function createProductHandlers({
         return res.status(400).json({ error: "Los productos de helado por sabores deben registrarse como productos." });
       }
 
+      if (normalizedMode === "personalizado" && normalizedType !== "productos") {
+        return res.status(400).json({ error: "Los productos personalizados libres deben registrarse como productos." });
+      }
+
       if (normalizedType === "materia prima" && (!medida || typeof medida !== "string")) {
         return res.status(400).json({ error: "Materia prima necesita una mediciÃ³n." });
       }
@@ -154,7 +158,7 @@ function createProductHandlers({
       }
 
       const hasPurchase = getCompras().some(compra => Array.isArray(compra.items) && compra.items.some(item => String(item.id) === String(id)));
-      const hasSale = getVentas().some(venta => Array.isArray(venta.items) && venta.items.some(item => String(item.id) === String(id) || (Array.isArray(item.sabores) && item.sabores.some(flavor => String(flavor.materiaPrimaId) === String(id))) || (Array.isArray(item.adicionales) && item.adicionales.some(adicional => String(adicional.materiaPrimaId) === String(id)))));
+      const hasSale = getVentas().some(venta => Array.isArray(venta.items) && venta.items.some(item => String(item.id) === String(id) || (Array.isArray(item.componentes) && item.componentes.some(component => String(component.id) === String(id))) || (Array.isArray(item.sabores) && item.sabores.some(flavor => String(flavor.materiaPrimaId) === String(id))) || (Array.isArray(item.adicionales) && item.adicionales.some(adicional => String(adicional.materiaPrimaId) === String(id)))));
       const hasInventoryMovement = getInventoryMovements().some(movement => String(movement.productoId) === String(id));
       const linkedFlavor = getSabores().some(flavor => String(flavor.materiaPrimaId) === String(id));
       const linkedTopping = getToppings().some(topping => String(topping.materiaPrimaId) === String(id));
