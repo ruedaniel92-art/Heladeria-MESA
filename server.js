@@ -17,6 +17,12 @@ const { createProductHandlers } = require("./backend/products");
 const { createPurchaseHandlers } = require("./backend/purchases");
 const { createSalesHandlers } = require("./backend/sales");
 const {
+  buildNextDocumentNumber,
+  buildNextOutgoingReceiptNumber: buildNextOutgoingReceiptNumberFromRecords
+} = require("./backend/shared/receipts");
+const { createConsumableHelpers } = require("./backend/shared/consumables");
+const { createFirestoreStore } = require("./backend/shared/store");
+const {
   calculatePurchaseInvoiceTotal,
   calculateSaleInvoiceTotal,
   ensureExternalDebtFinancialState,
@@ -243,35 +249,6 @@ let toppingControls = [];
 let sauceControls = [];
 let inventoryMovements = [];
 let externalDebts = [];
-const collectionCacheState = Object.values(COLLECTIONS).reduce((accumulator, collectionName) => {
-  accumulator[collectionName] = { loadedAt: 0, hasLoaded: false };
-  return accumulator;
-}, {});
-
-function getCollectionCacheDuration(collectionName) {
-  return Number(COLLECTION_CACHE_MS[collectionName] || DEFAULT_COLLECTION_CACHE_MS);
-}
-
-function markCollectionCache(collectionName, timestamp = Date.now()) {
-  if (!collectionCacheState[collectionName]) {
-    collectionCacheState[collectionName] = { loadedAt: 0, hasLoaded: false };
-  }
-  collectionCacheState[collectionName].loadedAt = timestamp;
-  collectionCacheState[collectionName].hasLoaded = true;
-}
-
-function shouldHydrateCollection(collectionName, forceRefresh = false) {
-  if (forceRefresh) {
-    return true;
-  }
-
-  const cacheEntry = collectionCacheState[collectionName];
-  if (!cacheEntry?.hasLoaded) {
-    return true;
-  }
-
-  return Date.now() - Number(cacheEntry.loadedAt || 0) >= getCollectionCacheDuration(collectionName);
-}
 
 function assignCollectionData(collectionName, records) {
   switch (collectionName) {
@@ -328,88 +305,20 @@ function assignCollectionData(collectionName, records) {
   }
 }
 
-function sanitizeFirestoreValue(value) {
-  if (Array.isArray(value)) {
-    return value.map(sanitizeFirestoreValue);
-  }
-
-  if (value && typeof value === 'object') {
-    return Object.entries(value).reduce((accumulator, [key, nestedValue]) => {
-      if (nestedValue !== undefined) {
-        accumulator[key] = sanitizeFirestoreValue(nestedValue);
-      }
-      return accumulator;
-    }, {});
-  }
-
-  return value;
-}
-
-async function loadCollection(collectionName) {
-  const snapshot = await db.collection(collectionName).get();
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-}
-
-async function hydrateStore(collectionNames = null, options = {}) {
-  const { forceRefresh = false } = options;
-  const targetCollections = Array.isArray(collectionNames) && collectionNames.length
-    ? collectionNames
-    : Object.values(COLLECTIONS);
-
-  const uniqueCollections = [...new Set(targetCollections)].filter(collectionName => shouldHydrateCollection(collectionName, forceRefresh));
-  if (!uniqueCollections.length) {
-    return;
-  }
-
-  const loadedCollections = await Promise.all(uniqueCollections.map(async collectionName => ({
-    collectionName,
-    records: await loadCollection(collectionName)
-  })));
-
-  loadedCollections.forEach(({ collectionName, records }) => {
-    assignCollectionData(collectionName, records);
-    markCollectionCache(collectionName);
-  });
-}
-
-function createDocId(collectionName) {
-  return db.collection(collectionName).doc().id;
-}
-
-async function saveRecord(collectionName, record) {
-  const id = String(record.id || createDocId(collectionName));
-  const payload = sanitizeFirestoreValue({ ...record, id });
-  await db.collection(collectionName).doc(id).set(payload);
-  markCollectionCache(collectionName);
-  return payload;
-}
-
-async function deleteRecord(collectionName, id) {
-  await db.collection(collectionName).doc(String(id)).delete();
-  markCollectionCache(collectionName);
-}
-
-async function commitBatch(operations) {
-  const batch = db.batch();
-  const touchedCollections = new Set();
-
-  operations.forEach(operation => {
-    if (!operation) return;
-    touchedCollections.add(operation.collection);
-
-    const docRef = db.collection(operation.collection).doc(String(operation.id));
-    if (operation.type === 'delete') {
-      batch.delete(docRef);
-      return;
-    }
-
-    batch.set(docRef, sanitizeFirestoreValue({ ...operation.data, id: String(operation.id) }));
-  });
-
-  await batch.commit();
-  const commitTime = Date.now();
-  touchedCollections.forEach(collectionName => markCollectionCache(collectionName, commitTime));
-}
+const {
+  commitBatch,
+  createDocId,
+  deleteRecord,
+  hydrateStore,
+  sanitizeFirestoreValue,
+  saveRecord
+} = createFirestoreStore({
+  db,
+  collections: COLLECTIONS,
+  assignCollectionData,
+  collectionCacheMs: COLLECTION_CACHE_MS,
+  defaultCollectionCacheMs: DEFAULT_COLLECTION_CACHE_MS
+});
 
 function getLinkedPurchaseCardPayments(compraId, paymentEntryId) {
   return pagos.filter(payment => String(payment.sourceModule || '') === 'compras'
@@ -504,544 +413,11 @@ function asyncHandler(handler) {
   };
 }
 
-function buildNextDocumentNumber(records, prefix) {
-  const maxSequence = records.reduce((maxValue, record) => {
-    const documentValue = String(record.documento || record.document || '').trim().toUpperCase();
-    if (!documentValue.startsWith(`${prefix}-`)) {
-      return maxValue;
-    }
-    const sequence = Number(documentValue.slice(prefix.length + 1));
-    return Number.isNaN(sequence) ? maxValue : Math.max(maxValue, sequence);
-  }, 0);
-
-  return `${prefix}-${String(maxSequence + 1).padStart(4, "0")}`;
-}
-
 function normalizeFlavorName(value) {
   return String(value || '').trim();
 }
 
-function getActiveBucketForFlavor(flavorId) {
-  return baldesControl.find(bucket => String(bucket.saborId) === String(flavorId) && bucket.estado === 'abierto');
-}
 
-function getActiveToppingControlForTopping(toppingId) {
-  return toppingControls.find(control => String(control.toppingId) === String(toppingId) && control.estado === 'abierto');
-}
-
-function getActiveSauceControlForSauce(sauceId) {
-  return sauceControls.find(control => String(control.sauceId) === String(sauceId) && control.estado === 'abierto');
-}
-
-function getFlavorPurchasedStock(flavorId) {
-  const normalizedFlavorId = String(flavorId || '').trim();
-  if (!normalizedFlavorId) {
-    return 0;
-  }
-
-  const flavor = sabores.find(item => String(item.id) === normalizedFlavorId);
-  if (!flavor) {
-    return 0;
-  }
-
-  const linkedFlavors = sabores.filter(item => String(item.materiaPrimaId || '') === String(flavor.materiaPrimaId));
-
-  return compras.reduce((total, compra) => {
-    const items = Array.isArray(compra.items) ? compra.items : [];
-    return total + items.reduce((sum, item) => {
-      if (String(item.id || '') !== String(flavor.materiaPrimaId)) {
-        return sum;
-      }
-
-      const matchesFlavor = String(item.flavorId || '') === normalizedFlavorId;
-      const isSingleFlavorRawMaterial = !item.flavorId && linkedFlavors.length === 1;
-      if (!matchesFlavor && !isSingleFlavorRawMaterial) {
-        return sum;
-      }
-
-      const materiaPrima = productos.find(producto => String(producto.id) === String(item.id)) || findProductoByIdOrName({ id: item.id, nombre: item.nombre });
-      if (!materiaPrima) {
-        return sum;
-      }
-
-      return sum + getMateriaPrimaStockIncrement(materiaPrima, Number(item.cantidad || 0));
-    }, 0);
-  }, 0);
-}
-
-function getFlavorConsumedStock(flavorId) {
-  const normalizedFlavorId = String(flavorId || '').trim();
-  if (!normalizedFlavorId) {
-    return 0;
-  }
-
-  return ventas.reduce((total, venta) => {
-    const items = Array.isArray(venta.items) ? venta.items : [];
-    return total + items.reduce((sum, item) => {
-      const flavors = Array.isArray(item.sabores) ? item.sabores : [];
-      return sum + flavors.reduce((flavorSum, flavor) => {
-        return String(flavor.id || '') === normalizedFlavorId
-          ? flavorSum + Number(flavor.porciones || 0)
-          : flavorSum;
-      }, 0);
-    }, 0);
-  }, 0);
-}
-
-function getFlavorAvailableStock(flavorId) {
-  return Math.max(getFlavorPurchasedStock(flavorId) - getFlavorConsumedStock(flavorId), 0);
-}
-
-function getToppingPurchasedStock(toppingId) {
-  const normalizedToppingId = String(toppingId || '').trim();
-  if (!normalizedToppingId) {
-    return 0;
-  }
-
-  const topping = toppings.find(item => String(item.id) === normalizedToppingId);
-  if (!topping) {
-    return 0;
-  }
-
-  const linkedToppings = toppings.filter(item => String(item.materiaPrimaId || '') === String(topping.materiaPrimaId));
-  return compras.reduce((total, compra) => {
-    const items = Array.isArray(compra.items) ? compra.items : [];
-    return total + items.reduce((sum, item) => {
-      if (String(item.id || '') !== String(topping.materiaPrimaId)) {
-        return sum;
-      }
-
-      const matchesTopping = String(item.toppingId || '') === normalizedToppingId;
-      const isSingleToppingRawMaterial = !item.toppingId && linkedToppings.length === 1;
-      if (!matchesTopping && !isSingleToppingRawMaterial) {
-        return sum;
-      }
-
-      const materiaPrima = productos.find(producto => String(producto.id) === String(item.id)) || findProductoByIdOrName({ id: item.id, nombre: item.nombre });
-      if (!materiaPrima) {
-        return sum;
-      }
-
-      return sum + getMateriaPrimaStockIncrement(materiaPrima, Number(item.cantidad || 0));
-    }, 0);
-  }, 0);
-}
-
-function getToppingConsumedStock(toppingId) {
-  const normalizedToppingId = String(toppingId || '').trim();
-  if (!normalizedToppingId) {
-    return 0;
-  }
-
-  return ventas.reduce((total, venta) => {
-    const items = Array.isArray(venta.items) ? venta.items : [];
-    return total + items.reduce((sum, item) => {
-      const adicionales = Array.isArray(item.adicionales) ? item.adicionales : [];
-      return sum + adicionales.reduce((addonsSum, adicional) => {
-        return String(adicional.id || '') === normalizedToppingId
-          ? addonsSum + Number(adicional.cantidad || 0)
-          : addonsSum;
-      }, 0);
-    }, 0);
-  }, 0);
-}
-
-function getToppingAvailableStock(toppingId) {
-  return Math.max(getToppingPurchasedStock(toppingId) - getToppingConsumedStock(toppingId), 0);
-}
-
-function getSaucePurchasedStock(sauceId) {
-  const normalizedSauceId = String(sauceId || '').trim();
-  if (!normalizedSauceId) {
-    return 0;
-  }
-
-  const sauce = salsas.find(item => String(item.id) === normalizedSauceId);
-  if (!sauce) {
-    return 0;
-  }
-
-  const linkedSauces = salsas.filter(item => String(item.materiaPrimaId || '') === String(sauce.materiaPrimaId));
-  return compras.reduce((total, compra) => {
-    const items = Array.isArray(compra.items) ? compra.items : [];
-    return total + items.reduce((sum, item) => {
-      if (String(item.id || '') !== String(sauce.materiaPrimaId)) {
-        return sum;
-      }
-
-      const matchesSauce = String(item.sauceId || '') === normalizedSauceId;
-      const isSingleSauceRawMaterial = !item.sauceId && linkedSauces.length === 1;
-      if (!matchesSauce && !isSingleSauceRawMaterial) {
-        return sum;
-      }
-
-      const materiaPrima = productos.find(producto => String(producto.id) === String(item.id)) || findProductoByIdOrName({ id: item.id, nombre: item.nombre });
-      if (!materiaPrima) {
-        return sum;
-      }
-
-      return sum + getMateriaPrimaStockIncrement(materiaPrima, Number(item.cantidad || 0));
-    }, 0);
-  }, 0);
-}
-
-function getSauceConsumedStock(sauceId) {
-  const normalizedSauceId = String(sauceId || '').trim();
-  if (!normalizedSauceId) {
-    return 0;
-  }
-
-  return ventas.reduce((total, venta) => {
-    const items = Array.isArray(venta.items) ? venta.items : [];
-    return total + items.reduce((sum, item) => {
-      const adicionales = Array.isArray(item.adicionales) ? item.adicionales : [];
-      return sum + adicionales.reduce((addonsSum, adicional) => {
-        return String(adicional.id || '') === normalizedSauceId
-          ? addonsSum + Number(adicional.cantidad || 0)
-          : addonsSum;
-      }, 0);
-    }, 0);
-  }, 0);
-}
-
-function getSauceAvailableStock(sauceId) {
-  return Math.max(getSaucePurchasedStock(sauceId) - getSauceConsumedStock(sauceId), 0);
-}
-
-function sortRecordsByDate(records, dateField = 'fecha') {
-  return records.slice().sort((left, right) => {
-    const leftDate = new Date(left?.[dateField] || left?.createdAt || 0).getTime();
-    const rightDate = new Date(right?.[dateField] || right?.createdAt || 0).getTime();
-    if (leftDate !== rightDate) {
-      return leftDate - rightDate;
-    }
-    return String(left?.id || '').localeCompare(String(right?.id || ''));
-  });
-}
-
-function extractReceiptSequence(value, prefix = 'REC-') {
-  const normalizedValue = String(value || '').trim().toUpperCase();
-  if (!normalizedValue.startsWith(prefix)) {
-    return 0;
-  }
-  const numericPart = normalizedValue.slice(prefix.length).replace(/[^0-9]/g, '');
-  const sequence = Number(numericPart);
-  return Number.isInteger(sequence) && sequence > 0 ? sequence : 0;
-}
-
-function getHistoryReceiptSequence(historyEntries, prefix = 'REC-') {
-  return (Array.isArray(historyEntries) ? historyEntries : []).reduce((maxValue, entry) => {
-    const entrySequence = Math.max(
-      extractReceiptSequence(entry?.receiptNumber, prefix),
-      extractReceiptSequence(entry?.paymentReference, prefix)
-    );
-    return Math.max(maxValue, entrySequence);
-  }, 0);
-}
-
-function buildNextOutgoingReceiptNumber(prefix = 'REC-') {
-  const paymentMax = (Array.isArray(pagos) ? pagos : []).reduce((maxValue, payment) => {
-    const paymentSequence = Math.max(
-      extractReceiptSequence(payment?.receiptNumber, prefix),
-      extractReceiptSequence(payment?.referencia, prefix)
-    );
-    return Math.max(maxValue, paymentSequence);
-  }, 0);
-  const purchaseMax = (Array.isArray(compras) ? compras : []).reduce((maxValue, compra) => Math.max(maxValue, getHistoryReceiptSequence(compra?.paymentHistory, prefix)), 0);
-  const externalDebtMax = (Array.isArray(externalDebts) ? externalDebts : []).reduce((maxValue, debt) => Math.max(maxValue, getHistoryReceiptSequence(debt?.paymentHistory, prefix)), 0);
-  const highestSequence = Math.max(paymentMax, purchaseMax, externalDebtMax);
-  return `${prefix}${String(highestSequence + 1).padStart(6, '0')}`;
-}
-
-function getDefaultFundSettings() {
-  return {
-    id: 'main',
-    openingCashBalance: 0,
-    openingBankBalance: 0,
-    minimumCashReserve: 0,
-    createdAt: null,
-    updatedAt: null
-  };
-}
-
-function getCurrentFundSettings() {
-  const defaultSettings = getDefaultFundSettings();
-  const storedSettings = Array.isArray(fundSettings) && fundSettings.length ? fundSettings[0] : null;
-  return {
-    ...defaultSettings,
-    ...(storedSettings || {}),
-    openingCashBalance: Number(storedSettings?.openingCashBalance || 0),
-    openingBankBalance: Number(storedSettings?.openingBankBalance || 0),
-    minimumCashReserve: Number(storedSettings?.minimumCashReserve || 0)
-  };
-}
-
-function getConsumableConfig(kind) {
-  if (kind === 'bucket') {
-    return {
-      entityList: sabores,
-      controlList: baldesControl,
-      entityIdField: 'saborId',
-      entityNameField: 'saborNombre',
-      rawMaterialIdField: 'materiaPrimaId',
-      rawMaterialNameField: 'materiaPrimaNombre',
-      purchaseLinkField: 'flavorId',
-      purchaseLinkNameField: 'flavorName',
-      controlLinkField: 'baldeControlId',
-      controlCollection: COLLECTIONS.baldesControl,
-      label: 'balde'
-    };
-  }
-
-  if (kind === 'topping') {
-    return {
-      entityList: toppings,
-      controlList: toppingControls,
-      entityIdField: 'toppingId',
-      entityNameField: 'toppingNombre',
-      rawMaterialIdField: 'materiaPrimaId',
-      rawMaterialNameField: 'materiaPrimaNombre',
-      purchaseLinkField: 'toppingId',
-      purchaseLinkNameField: 'toppingName',
-      controlLinkField: 'toppingControlId',
-      controlCollection: COLLECTIONS.toppingControls,
-      label: 'topping'
-    };
-  }
-
-  if (kind === 'sauce') {
-    return {
-      entityList: salsas,
-      controlList: sauceControls,
-      entityIdField: 'sauceId',
-      entityNameField: 'sauceNombre',
-      rawMaterialIdField: 'materiaPrimaId',
-      rawMaterialNameField: 'materiaPrimaNombre',
-      purchaseLinkField: 'sauceId',
-      purchaseLinkNameField: 'sauceName',
-      controlLinkField: 'sauceControlId',
-      controlCollection: COLLECTIONS.sauceControls,
-      label: 'salsa/aderezo'
-    };
-  }
-
-  return null;
-}
-
-function getConsumableEntity(kind, entityId) {
-  const config = getConsumableConfig(kind);
-  if (!config) return null;
-  return config.entityList.find(item => String(item.id) === String(entityId)) || null;
-}
-
-function getConsumableEntitiesByRawMaterial(kind, rawMaterialId) {
-  const config = getConsumableConfig(kind);
-  if (!config) return [];
-  return config.entityList.filter(item => String(item[config.rawMaterialIdField] || '') === String(rawMaterialId || ''));
-}
-
-function buildConsumablePurchaseUnitLayers(kind, entityId) {
-  const config = getConsumableConfig(kind);
-  const entity = getConsumableEntity(kind, entityId);
-  if (!config || !entity) {
-    return [];
-  }
-
-  const rawMaterial = productos.find(producto => String(producto.id) === String(entity[config.rawMaterialIdField]));
-  if (!rawMaterial) {
-    return [];
-  }
-
-  const linkedEntities = getConsumableEntitiesByRawMaterial(kind, rawMaterial.id);
-  const theoreticalYieldPerUnit = getMateriaPrimaStockIncrement(rawMaterial, 1);
-  if (Number.isNaN(theoreticalYieldPerUnit) || theoreticalYieldPerUnit <= 0) {
-    return [];
-  }
-
-  const layers = [];
-  sortRecordsByDate(compras).forEach(compra => {
-    const items = Array.isArray(compra.items) ? compra.items : [];
-    items.forEach((item, itemIndex) => {
-      if (String(item.id || '') !== String(rawMaterial.id)) {
-        return;
-      }
-
-      const linkedId = String(item[config.purchaseLinkField] || '').trim();
-      const matchesEntity = linkedId === String(entity.id) || (!linkedId && linkedEntities.length === 1);
-      if (!matchesEntity) {
-        return;
-      }
-
-      let remainingUnits = Number(item.cantidad || 0);
-      const unitCost = Number(item.costo || 0);
-      let sequence = 1;
-      while (remainingUnits > 0.0000001) {
-        const consumedUnits = remainingUnits >= 1 ? 1 : remainingUnits;
-        const totalCost = unitCost * consumedUnits;
-        const theoreticalYield = theoreticalYieldPerUnit * consumedUnits;
-        layers.push({
-          key: `${String(compra.id || 'purchase')}:${itemIndex}:${sequence}`,
-          compraId: compra.id,
-          documentoCompra: compra.documento || '',
-          fechaCompra: compra.fecha || null,
-          entidadId: entity.id,
-          entidadNombre: entity.nombre || '',
-          purchasedUnits: consumedUnits,
-          costoTotal: totalCost,
-          costoUnitarioTeorico: theoreticalYield > 0 ? totalCost / theoreticalYield : 0,
-          rendimientoTeorico: theoreticalYield
-        });
-        remainingUnits -= consumedUnits;
-        sequence += 1;
-      }
-    });
-  });
-
-  return layers;
-}
-
-function getAssignedConsumableLayer(kind, control) {
-  const config = getConsumableConfig(kind);
-  if (!config || !control) {
-    return null;
-  }
-
-  const controlsForEntity = sortRecordsByDate(
-    config.controlList.filter(item => String(item[config.entityIdField] || '') === String(control[config.entityIdField] || '')),
-    'fechaApertura'
-  );
-  const controlIndex = controlsForEntity.findIndex(item => String(item.id) === String(control.id));
-  if (controlIndex < 0) {
-    return null;
-  }
-
-  const layers = buildConsumablePurchaseUnitLayers(kind, control[config.entityIdField]);
-  return layers[controlIndex] || null;
-}
-
-function getNextConsumableLayer(kind, entityId) {
-  const config = getConsumableConfig(kind);
-  if (!config) {
-    return null;
-  }
-
-  const controlsForEntity = config.controlList.filter(item => String(item[config.entityIdField] || '') === String(entityId || ''));
-  const layers = buildConsumablePurchaseUnitLayers(kind, entityId);
-  return layers[controlsForEntity.length] || null;
-}
-
-function applyConsumableCostSnapshot(control, layer) {
-  if (!control || !layer) {
-    return control;
-  }
-
-  control.capaCostoKey = layer.key;
-  control.compraId = layer.compraId || null;
-  control.documentoCompra = layer.documentoCompra || null;
-  control.fechaCompra = layer.fechaCompra || null;
-  control.unidadesApertura = Number(layer.purchasedUnits || 0);
-  control.rendimientoTeorico = Number(layer.rendimientoTeorico || 0);
-  control.costoAperturaTotal = Number(layer.costoTotal || 0);
-  control.costoPorcionProvisional = Number(layer.costoUnitarioTeorico || 0);
-  control.costoPorcionFinal = control.costoPorcionFinal === null || control.costoPorcionFinal === undefined
-    ? null
-    : Number(control.costoPorcionFinal || 0);
-  control.rendimientoReal = control.rendimientoReal === null || control.rendimientoReal === undefined
-    ? null
-    : Number(control.rendimientoReal || 0);
-  control.mermaReal = control.mermaReal === null || control.mermaReal === undefined
-    ? null
-    : Number(control.mermaReal || 0);
-  control.costoEstado = control.costoPorcionFinal !== null ? 'final' : 'provisional';
-  return control;
-}
-
-function ensureConsumableControlSnapshot(kind, control) {
-  if (!control) {
-    return null;
-  }
-  if (control.capaCostoKey && control.costoAperturaTotal !== undefined && control.costoAperturaTotal !== null) {
-    return control;
-  }
-  const assignedLayer = getAssignedConsumableLayer(kind, control);
-  if (!assignedLayer) {
-    return control;
-  }
-  return applyConsumableCostSnapshot(control, assignedLayer);
-}
-
-function getControlCostValues(control, finalCost = false) {
-  const finalUnitCost = Number(control?.costoPorcionFinal);
-  const provisionalUnitCost = Number(control?.costoPorcionProvisional);
-  const unitCost = finalCost && Number.isFinite(finalUnitCost) && finalUnitCost >= 0
-    ? finalUnitCost
-    : Number.isFinite(provisionalUnitCost) && provisionalUnitCost >= 0
-      ? provisionalUnitCost
-      : 0;
-  return {
-    unitCost,
-    totalForQuantity(quantity) {
-      return unitCost * Number(quantity || 0);
-    }
-  };
-}
-
-function applyFinalCostToSalesForControl(kind, control) {
-  const config = getConsumableConfig(kind);
-  if (!config || !control) {
-    return [];
-  }
-
-  const affectedSales = [];
-  ventas.forEach(venta => {
-    let saleTouched = false;
-    const items = Array.isArray(venta.items) ? venta.items : [];
-    items.forEach(item => {
-      if (kind === 'bucket') {
-        const saboresItem = Array.isArray(item.sabores) ? item.sabores : [];
-        saboresItem.forEach(flavor => {
-          if (String(flavor[config.controlLinkField] || '') !== String(control.id)) {
-            return;
-          }
-          const costValues = getControlCostValues(control, true);
-          flavor.costoUnitarioFinal = costValues.unitCost;
-          flavor.costoTotalFinal = costValues.totalForQuantity(flavor.porciones);
-          if (flavor.costoUnitarioProvisional === undefined || flavor.costoUnitarioProvisional === null) {
-            const provisionalValues = getControlCostValues(control, false);
-            flavor.costoUnitarioProvisional = provisionalValues.unitCost;
-            flavor.costoTotalProvisional = provisionalValues.totalForQuantity(flavor.porciones);
-          }
-          flavor.costoEstado = 'final';
-          saleTouched = true;
-        });
-        return;
-      }
-
-      const addons = Array.isArray(item.adicionales) ? item.adicionales : [];
-      addons.forEach(addon => {
-        if (String(addon[config.controlLinkField] || '') !== String(control.id)) {
-          return;
-        }
-        const costValues = getControlCostValues(control, true);
-        addon.costoUnitarioFinal = costValues.unitCost;
-        addon.costoTotalFinal = costValues.totalForQuantity(addon.cantidad);
-        if (addon.costoUnitarioProvisional === undefined || addon.costoUnitarioProvisional === null) {
-          const provisionalValues = getControlCostValues(control, false);
-          addon.costoUnitarioProvisional = provisionalValues.unitCost;
-          addon.costoTotalProvisional = provisionalValues.totalForQuantity(addon.cantidad);
-        }
-        addon.costoEstado = 'final';
-        saleTouched = true;
-      });
-    });
-
-    if (saleTouched) {
-      affectedSales.push(venta);
-    }
-  });
-
-  return affectedSales;
-}
 
 function findProductoByIdOrName({ id, nombre }) {
   if (id !== undefined && id !== null) {
@@ -1076,114 +452,63 @@ function buildInventoryMovement({ producto, tipo, direccion, cantidad, fecha, ob
   };
 }
 
-function findExistingConsumableCloseMovements(kind, control) {
-  const config = getConsumableConfig(kind);
-  if (!config || !control) {
-    return [];
-  }
 
-  const closeDate = control.fechaCierre ? new Date(control.fechaCierre) : null;
-  const closeTime = closeDate && !Number.isNaN(closeDate.getTime()) ? closeDate.getTime() : null;
-  const expectedObservation = `Merma por cierre de ${config.label} ${control[config.entityNameField] || ''}`.trim();
 
-  return inventoryMovements.filter(movement => {
-    if (String(movement.tipo || '') !== 'cierre-control' || String(movement.direccion || '') !== 'salida') {
-      return false;
-    }
-    if (String(movement.controlKind || '') === String(kind) && String(movement.controlId || '') === String(control.id)) {
-      return true;
-    }
-    if (String(movement.productoId || '') !== String(control[config.rawMaterialIdField] || '')) {
-      return false;
-    }
-    if (String(movement.observacion || '').trim() !== expectedObservation) {
-      return false;
-    }
-    if (Number(movement.cantidad || 0) !== Number(control.mermaReal || 0)) {
-      return false;
-    }
-    if (closeTime === null) {
-      return true;
-    }
-    const movementTime = movement.fecha ? new Date(movement.fecha).getTime() : null;
-    return movementTime === closeTime;
-  });
+const {
+  applyConsumableCostSnapshot,
+  applyFinalCostToSalesForControl,
+  ensureConsumableControlSnapshot,
+  getActiveBucketForFlavor,
+  getActiveSauceControlForSauce,
+  getActiveToppingControlForTopping,
+  getControlCostValues,
+  getFlavorAvailableStock,
+  getNextConsumableLayer,
+  getSauceAvailableStock,
+  getToppingAvailableStock,
+  removeConsumableCloseInventoryMovements,
+  repairConsumableControls
+} = createConsumableHelpers({
+  collections: COLLECTIONS,
+  findProductoByIdOrName,
+  getBaldesControl: () => baldesControl,
+  getCompras: () => compras,
+  getInventoryMovements: () => inventoryMovements,
+  getMateriaPrimaStockIncrement,
+  getProductos: () => productos,
+  getSalsas: () => salsas,
+  getSauceControls: () => sauceControls,
+  getSabores: () => sabores,
+  getToppingControls: () => toppingControls,
+  getToppings: () => toppings,
+  getVentas: () => ventas,
+  setInventoryMovements: records => { inventoryMovements = records; }
+});
+
+function buildNextOutgoingReceiptNumber(prefix = 'REC-') {
+  return buildNextOutgoingReceiptNumberFromRecords({ pagos, compras, externalDebts }, prefix);
 }
 
-function removeConsumableCloseInventoryMovements(kind, control) {
-  const config = getConsumableConfig(kind);
-  if (!config || !control) {
-    return { removedMovements: [], affectedProduct: null, restoredQuantity: 0 };
-  }
-
-  const existingMovements = findExistingConsumableCloseMovements(kind, control);
-  if (!existingMovements.length) {
-    return { removedMovements: [], affectedProduct: null, restoredQuantity: 0 };
-  }
-
-  const producto = productos.find(item => String(item.id) === String(control[config.rawMaterialIdField] || ''));
-  const restoredQuantity = existingMovements.reduce((sum, movement) => sum + Math.max(Number(movement.cantidad || 0), 0), 0);
-
-  if (producto && restoredQuantity > 0) {
-    producto.stock = Number(producto.stock || 0) + restoredQuantity;
-  }
-
-  const removedIds = new Set(existingMovements.map(movement => String(movement.id)));
-  inventoryMovements = inventoryMovements.filter(movement => !removedIds.has(String(movement.id)));
-
+function getDefaultFundSettings() {
   return {
-    removedMovements: existingMovements,
-    affectedProduct: producto || null,
-    restoredQuantity
+    id: 'main',
+    openingCashBalance: 0,
+    openingBankBalance: 0,
+    minimumCashReserve: 0,
+    createdAt: null,
+    updatedAt: null
   };
 }
 
-function repairConsumableControls(kind) {
-  const config = getConsumableConfig(kind);
-  if (!config) {
-    return { repairedControls: 0, createdMovements: 0, updatedSales: 0, updatedProducts: 0 };
-  }
-
-  let repairedControls = 0;
-  let removedMovements = 0;
-  const affectedSaleIds = new Set();
-  const affectedProductIds = new Set();
-  const removedMovementIds = new Set();
-
-  sortRecordsByDate(config.controlList, 'fechaApertura').forEach(control => {
-    ensureConsumableControlSnapshot(kind, control);
-    if (String(control.estado || '') !== 'cerrado') {
-      return;
-    }
-
-    const soldPortions = Number(control.porcionesVendidas || 0);
-    const theoreticalYield = Number(control.rendimientoTeorico || 0);
-    const rendimientoReal = Math.max(soldPortions, 0);
-    const mermaReal = Math.max(theoreticalYield - rendimientoReal, 0);
-
-    control.rendimientoReal = rendimientoReal;
-    control.mermaReal = mermaReal;
-    control.costoPorcionFinal = rendimientoReal > 0 ? Number(control.costoAperturaTotal || 0) / rendimientoReal : 0;
-    control.costoEstado = 'final';
-    repairedControls += 1;
-
-    const affectedSales = applyFinalCostToSalesForControl(kind, control);
-    affectedSales.forEach(venta => affectedSaleIds.add(String(venta.id)));
-
-    const cleanupResult = removeConsumableCloseInventoryMovements(kind, control);
-    if (cleanupResult.affectedProduct) {
-      affectedProductIds.add(String(cleanupResult.affectedProduct.id));
-    }
-    removedMovements += cleanupResult.removedMovements.length;
-    cleanupResult.removedMovements.forEach(movement => removedMovementIds.add(String(movement.id)));
-  });
-
+function getCurrentFundSettings() {
+  const defaultSettings = getDefaultFundSettings();
+  const storedSettings = Array.isArray(fundSettings) && fundSettings.length ? fundSettings[0] : null;
   return {
-    repairedControls,
-    removedMovements,
-    removedMovementIds: Array.from(removedMovementIds),
-    updatedSales: affectedSaleIds.size,
-    updatedProducts: affectedProductIds.size
+    ...defaultSettings,
+    ...(storedSettings || {}),
+    openingCashBalance: Number(storedSettings?.openingCashBalance || 0),
+    openingBankBalance: Number(storedSettings?.openingBankBalance || 0),
+    minimumCashReserve: Number(storedSettings?.minimumCashReserve || 0)
   };
 }
 
