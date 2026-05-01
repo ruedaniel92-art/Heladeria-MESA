@@ -121,7 +121,7 @@ export function createInventoryModule(context) {
       movements.push({ date, type, document, detail, input: entry, output: exit, sortPriority, unitCost, totalCost });
     };
 
-    state.purchases.forEach(compra => {
+    state.purchases.filter(compra => String(compra?.status || '').trim().toLowerCase() !== 'anulada').forEach(compra => {
       const document = compra.documento || compra.document || 'Compra';
       const items = Array.isArray(compra.items) ? compra.items : [];
       items.forEach(item => {
@@ -146,7 +146,7 @@ export function createInventoryModule(context) {
       });
     });
 
-    state.sales.forEach(venta => {
+    state.sales.filter(venta => String(venta?.status || '').trim().toLowerCase() !== 'anulada').forEach(venta => {
       const document = venta.documento || 'Venta';
       const items = Array.isArray(venta.items) ? venta.items : [];
       items.forEach(item => {

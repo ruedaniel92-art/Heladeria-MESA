@@ -114,6 +114,15 @@ function ensurePurchaseFinancialState(compra) {
     return null;
   }
   const totalAmount = calculatePurchaseInvoiceTotal(compra);
+  if (String(compra.status || "").trim().toLowerCase() === "anulada") {
+    compra.totalAmount = totalAmount;
+    compra.paymentHistory = [];
+    compra.totalPaid = 0;
+    compra.balanceDue = 0;
+    compra.paidAt = null;
+    compra.paymentReference = null;
+    return compra;
+  }
   const paymentSummary = summarizePaymentHistory(compra, totalAmount);
   const lastPayment = paymentSummary.paymentHistory.length ? paymentSummary.paymentHistory[paymentSummary.paymentHistory.length - 1] : null;
   const originalPaymentType = String(compra.originalPaymentType || compra.paymentType || "").trim().toLowerCase() || "contado";
@@ -140,6 +149,15 @@ function ensureSaleFinancialState(venta) {
     return null;
   }
   const totalAmount = calculateSaleInvoiceTotal(venta);
+  if (String(venta.status || "").trim().toLowerCase() === "anulada") {
+    venta.totalAmount = totalAmount;
+    venta.paymentHistory = [];
+    venta.totalPaid = 0;
+    venta.balanceDue = 0;
+    venta.paidAt = null;
+    venta.paymentReference = null;
+    return venta;
+  }
   const paymentSummary = summarizePaymentHistory(venta, totalAmount);
   const lastPayment = paymentSummary.paymentHistory.length ? paymentSummary.paymentHistory[paymentSummary.paymentHistory.length - 1] : null;
   const originalPaymentType = String(venta.originalPaymentType || venta.paymentType || "").trim().toLowerCase() || "contado";

@@ -1065,6 +1065,7 @@
     } = createPurchasesModule({
       state,
       buildReceiptReferenceMarkup,
+      cancelPurchase,
       escapeHtml,
       exportRowsToExcel,
       exportRowsToPdf,
@@ -1162,6 +1163,7 @@
       state,
       buildPaymentEntryReceiptMarkup,
       canManageSalePayment,
+      cancelSale,
       escapeHtml,
       exportRowsToExcel,
       exportRowsToPdf,
@@ -6708,6 +6710,73 @@
         await fetchProductos();
       } catch (error) {
         setProductStatus(error.message, { error: true });
+        console.error(error);
+      }
+    }
+
+    async function cancelPurchase(purchaseId) {
+      const purchase = getPurchaseById(purchaseId);
+      const label = purchase?.documento || purchase?.document || 'esta compra';
+      if (!window.confirm(`Anular ${label}? Se reversara el stock y ya no contara en Kardex, caja ni cuentas por pagar.`)) {
+        return;
+      }
+      try {
+        purchaseStatus.className = 'status';
+        purchaseStatus.textContent = 'Anulando compra...';
+        const response = await fetch(buildApiUrl(`/compras/${encodeURIComponent(purchaseId)}/anular`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'Anulada desde registro de compras' })
+        });
+        const result = await readApiResponse(response);
+        if (!response.ok) {
+          throw new Error(result.error || 'No se pudo anular la compra.');
+        }
+        purchaseStatus.textContent = result.message || 'Compra anulada correctamente.';
+        showSuccess(result.message || 'Compra anulada correctamente.');
+        await Promise.all([fetchProductos(), fetchCompras(), fetchPayments()]);
+        renderInventorySummary();
+        renderInventoryKardex();
+        renderPaymentInfo();
+        renderPaymentRegistro();
+        renderPendingPayments();
+      } catch (error) {
+        purchaseStatus.className = 'status error';
+        purchaseStatus.textContent = error.message;
+        showError(error.message);
+        console.error(error);
+      }
+    }
+
+    async function cancelSale(saleId) {
+      const sale = getSaleById(saleId);
+      const label = sale?.documento || 'esta venta';
+      if (!window.confirm(`Anular ${label}? Se restaurara el stock y ya no contara en Kardex, caja ni cuentas por cobrar.`)) {
+        return;
+      }
+      try {
+        saleStatus.className = 'status';
+        saleStatus.textContent = 'Anulando venta...';
+        const response = await fetch(buildApiUrl(`/ventas/${encodeURIComponent(saleId)}/anular`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'Anulada desde registro de ventas' })
+        });
+        const result = await readApiResponse(response);
+        if (!response.ok) {
+          throw new Error(result.error || 'No se pudo anular la venta.');
+        }
+        saleStatus.textContent = result.message || 'Venta anulada correctamente.';
+        showSuccess(result.message || 'Venta anulada correctamente.');
+        await Promise.all([fetchProductos(), fetchVentas(), fetchBucketControls(), fetchToppingControls(), fetchSauceControls()]);
+        renderSaleRegistro();
+        renderSaleReceivables();
+        renderInventorySummary();
+        renderInventoryKardex();
+      } catch (error) {
+        saleStatus.className = 'status error';
+        saleStatus.textContent = error.message;
+        showError(error.message);
         console.error(error);
       }
     }

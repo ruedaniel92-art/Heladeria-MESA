@@ -71,6 +71,68 @@ module.exports = [
     }
   },
   {
+    name: "anular compra revierte stock y limpia pagos",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Base fresa anulada",
+              tipo: "materia prima",
+              stockMin: 1,
+              medida: "balde",
+              rendimientoPorCompra: 10
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productResult = await productResponse.json();
+          const productId = productResult.producto.id;
+
+          const purchaseResponse = await fetch(`${baseUrl}/compras`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              documento: "FC-ANULA-001",
+              proveedor: "Proveedor anulacion",
+              fecha: "2026-04-27",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashOut: 50,
+              items: [{ id: productId, cantidad: 2, costo: 25 }]
+            })
+          });
+          assert.equal(purchaseResponse.status, 201);
+          const purchaseResult = await purchaseResponse.json();
+
+          const cancelResponse = await fetch(`${baseUrl}/compras/${encodeURIComponent(purchaseResult.compra.id)}/anular`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({ reason: "prueba" })
+          });
+          assert.equal(cancelResponse.status, 200);
+          const cancelResult = await cancelResponse.json();
+          assert.equal(cancelResult.compra.status, "anulada");
+          assert.equal(cancelResult.compra.totalPaid, 0);
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario`, {
+            headers: authHeaders(token)
+          });
+          assert.equal(inventoryResponse.status, 200);
+          const inventory = await inventoryResponse.json();
+          const product = inventory.productos.find(item => String(item.id) === String(productId));
+          assert.equal(product.stock, 0);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
     name: "abono de compra a credito actualiza saldo tras la extraccion",
     async run() {
       const { app, restore } = loadApp();

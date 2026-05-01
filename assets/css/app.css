@@ -2890,6 +2890,13 @@
       min-width: 0;
     }
 
+    .cancel-record-btn {
+      min-height: 34px;
+      padding: 0 10px;
+      border-color: rgba(220, 38, 38, 0.35);
+      color: #dc2626;
+    }
+
     .purchase-row .field:last-child {
       min-width: fit-content;
     }

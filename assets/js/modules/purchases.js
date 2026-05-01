@@ -2,6 +2,7 @@ export function createPurchasesModule(context) {
   const {
     state,
     buildReceiptReferenceMarkup,
+    cancelPurchase,
     escapeHtml,
     exportRowsToExcel,
     exportRowsToPdf,
@@ -130,6 +131,7 @@ export function createPurchasesModule(context) {
   }
 
   function getPurchasePaymentTypeLabel(compra) {
+    if (isCancelledPurchase(compra)) return 'Anulada';
     if (isPaidCreditPurchase(compra)) return 'Credito pagado';
     if (isCreditPurchase(compra) && getPurchasePaidAmount(compra) > 0) return 'Credito abonado';
     if (isCreditPurchase(compra)) return 'Credito';
@@ -143,6 +145,10 @@ export function createPurchasesModule(context) {
 
   function getPurchaseById(purchaseId) {
     return state.purchases.find(compra => String(compra.id) === String(purchaseId)) || null;
+  }
+
+  function isCancelledPurchase(compra) {
+    return String(compra?.status || '').trim().toLowerCase() === 'anulada';
   }
 
   function comparePurchasesByDateDescending(left, right) {
@@ -429,7 +435,7 @@ export function createPurchasesModule(context) {
         <tbody>
           ${filtered.flatMap(compra => compra.items.map(item => {
             const total = Number(item.costo) * Number(item.cantidad);
-            const allowPaymentEditing = canManagePurchasePayment(compra);
+            const allowPaymentEditing = canManagePurchasePayment(compra) && !isCancelledPurchase(compra);
             const actionLabel = getPurchasePaymentActionLabel(compra);
             const linkedLabel = item.flavorName || item.toppingName || item.sauceName || '';
             const productLabel = linkedLabel ? `${item.nombre} · ${linkedLabel}` : item.nombre;
@@ -446,7 +452,12 @@ export function createPurchasesModule(context) {
                 <td>${Number(item.cantidad)}</td>
                 <td>${formatCurrency(item.costo)}</td>
                 <td>${formatCurrency(total)}</td>
-                <td>${allowPaymentEditing ? `<button type="button" class="secondary-btn action-icon-btn registro-payment-btn" data-registro-purchase-pay="${escapeHtml(String(compra.id))}" title="${escapeHtml(actionLabel)}">${getActionIcon(actionLabel)}</button>` : '-'}</td>
+                <td>
+                  <div class="purchase-row-actions">
+                    ${allowPaymentEditing ? `<button type="button" class="secondary-btn action-icon-btn registro-payment-btn" data-registro-purchase-pay="${escapeHtml(String(compra.id))}" title="${escapeHtml(actionLabel)}">${getActionIcon(actionLabel)}</button>` : ''}
+                    ${!isCancelledPurchase(compra) ? `<button type="button" class="secondary-btn cancel-record-btn" data-purchase-cancel="${escapeHtml(String(compra.id))}" title="Anular compra">Anular</button>` : '<span class="status-chip pending">Anulada</span>'}
+                  </div>
+                </td>
               </tr>
             `;
           })).join('')}
@@ -466,6 +477,10 @@ export function createPurchasesModule(context) {
 
     purchaseRecords.querySelectorAll('[data-registro-purchase-pay]').forEach(button => {
       button.addEventListener('click', () => openPurchasePayableModalPanel(button.dataset.registroPurchasePay));
+    });
+
+    purchaseRecords.querySelectorAll('[data-purchase-cancel]').forEach(button => {
+      button.addEventListener('click', () => cancelPurchase(button.dataset.purchaseCancel));
     });
   }
 
@@ -497,6 +512,7 @@ export function createPurchasesModule(context) {
     today.setHours(0, 0, 0, 0);
 
     return state.purchases.filter(compra => {
+      if (isCancelledPurchase(compra)) return false;
       if (!isCreditPurchase(compra) || isPaidCreditPurchase(compra)) return false;
       const dueDate = compra.dueDate ? new Date(compra.dueDate) : null;
       const invoiceDate = compra.fecha ? new Date(compra.fecha) : null;
@@ -701,6 +717,7 @@ export function createPurchasesModule(context) {
     getPurchasePaymentTypeLabel,
     getPurchaseAccountStatus,
     getPurchaseById,
+    isCancelledPurchase,
     startEditPurchasePaymentEntry,
     openPurchasePayableModalPanel,
     closePurchasePayableModalPanel,

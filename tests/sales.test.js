@@ -81,6 +81,77 @@ module.exports = [
     }
   },
   {
+    name: "anular venta directa restaura stock y limpia cobros",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Paleta anulable",
+              tipo: "productos",
+              stockMin: 1,
+              precio: 15,
+              modoControl: "directo"
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productId = (await productResponse.json()).producto.id;
+
+          const initialInventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              productId,
+              quantity: 5,
+              unitCost: 8
+            })
+          });
+          assert.equal(initialInventoryResponse.status, 201);
+
+          const saleResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              documento: "FV-ANULA-001",
+              cliente: "Cliente anulacion",
+              fecha: "2026-04-27",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 30,
+              items: [{ id: productId, cantidad: 2, precio: 15 }]
+            })
+          });
+          assert.equal(saleResponse.status, 201);
+          const sale = (await saleResponse.json()).venta;
+
+          const cancelResponse = await fetch(`${baseUrl}/ventas/${encodeURIComponent(sale.id)}/anular`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({ reason: "prueba" })
+          });
+          assert.equal(cancelResponse.status, 200);
+          const cancelledSale = (await cancelResponse.json()).venta;
+          assert.equal(cancelledSale.status, "anulada");
+          assert.equal(cancelledSale.totalPaid, 0);
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario`, {
+            headers: authHeaders(token)
+          });
+          assert.equal(inventoryResponse.status, 200);
+          const inventory = await inventoryResponse.json();
+          assert.equal(inventory.productos.find(item => String(item.id) === String(productId)).stock, 5);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
     name: "venta personalizada libre descuenta componentes elegidos",
     async run() {
       const { app, restore } = loadApp();

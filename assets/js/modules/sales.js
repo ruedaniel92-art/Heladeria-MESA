@@ -3,6 +3,7 @@ export function createSalesModule(context) {
     state,
     buildPaymentEntryReceiptMarkup,
     canManageSalePayment,
+    cancelSale,
     escapeHtml,
     exportRowsToExcel,
     exportRowsToPdf,
@@ -124,6 +125,7 @@ export function createSalesModule(context) {
   }
 
   function getSalePaymentTypeLabel(venta) {
+    if (isCancelledSale(venta)) return 'Anulada';
     if (isPaidCreditSale(venta)) return 'Crédito pagado';
     if (isCreditSale(venta) && getSalePaidAmount(venta) > 0) return 'Crédito abonado';
     if (isCreditSale(venta)) return 'Crédito';
@@ -137,6 +139,10 @@ export function createSalesModule(context) {
 
   function getSaleById(saleId) {
     return state.sales.find(venta => String(venta.id) === String(saleId)) || null;
+  }
+
+  function isCancelledSale(venta) {
+    return String(venta?.status || '').trim().toLowerCase() === 'anulada';
   }
 
   function resetSalePaymentEntryEditing() {
@@ -424,6 +430,7 @@ export function createSalesModule(context) {
     today.setHours(0, 0, 0, 0);
 
     return state.sales.filter(venta => {
+      if (isCancelledSale(venta)) return false;
       if (!isCreditSale(venta) || isPaidCreditSale(venta)) return false;
       const invoiceDate = venta.fecha ? new Date(venta.fecha) : null;
       if (invoiceDate) invoiceDate.setHours(0, 0, 0, 0);
@@ -508,7 +515,7 @@ export function createSalesModule(context) {
                 + calculateSaleAddonsTotal(item.adicionales)
                 + calculateSaleComponentsTotal(item.componentes, itemQuantity);
               const personalization = formatSalePersonalization(item);
-              const allowPaymentEditing = canManageSalePayment(venta);
+              const allowPaymentEditing = canManageSalePayment(venta) && !isCancelledSale(venta);
               const actionLabel = getSalePaymentActionLabel(venta);
               const lastPayment = getLastRecordPayment(venta, getSaleTotalAmount(venta));
               const referenceMarkup = lastPayment
@@ -532,7 +539,12 @@ export function createSalesModule(context) {
                   <td>${costSummary.hasTrackedCost ? formatCurrency(costSummary.totalCost) : '-'}</td>
                   <td>${costSummary.hasTrackedCost ? formatCurrency(costSummary.utility) : '-'}</td>
                   <td>${costSummary.hasTrackedCost ? `<span class="status-chip ${String(costSummary.state || '').toLowerCase() === 'final' ? 'success' : 'pending'}">${escapeHtml(getCostStateLabel(costSummary.state))}</span>` : '-'}</td>
-                  <td>${allowPaymentEditing ? `<button type="button" class="secondary-btn action-icon-btn registro-payment-btn" data-registro-sale-pay="${escapeHtml(String(venta.id || ''))}" title="${escapeHtml(actionLabel)}">${getActionIcon(actionLabel)}</button>` : '-'}</td>
+                  <td>
+                    <div class="purchase-row-actions">
+                      ${allowPaymentEditing ? `<button type="button" class="secondary-btn action-icon-btn registro-payment-btn" data-registro-sale-pay="${escapeHtml(String(venta.id || ''))}" title="${escapeHtml(actionLabel)}">${getActionIcon(actionLabel)}</button>` : ''}
+                      ${!isCancelledSale(venta) ? `<button type="button" class="secondary-btn cancel-record-btn" data-sale-cancel="${escapeHtml(String(venta.id || ''))}" title="Anular venta">Anular</button>` : '<span class="status-chip pending">Anulada</span>'}
+                    </div>
+                  </td>
                 </tr>
               `;
             });
@@ -553,6 +565,10 @@ export function createSalesModule(context) {
 
     saleRecords.querySelectorAll('[data-registro-sale-pay]').forEach(button => {
       button.addEventListener('click', () => openSalePayableModalPanel(button.dataset.registroSalePay));
+    });
+
+    saleRecords.querySelectorAll('[data-sale-cancel]').forEach(button => {
+      button.addEventListener('click', () => cancelSale(button.dataset.saleCancel));
     });
   }
 
@@ -654,6 +670,7 @@ export function createSalesModule(context) {
     getSalePaymentTypeLabel,
     getSaleAccountStatus,
     getSaleById,
+    isCancelledSale,
     resetSalePaymentEntryEditing,
     getEditingSalePaymentEntryId,
     getPayingSaleId,

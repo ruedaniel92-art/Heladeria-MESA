@@ -21,6 +21,19 @@ function createPurchaseHandlers({
   isPurchasableProduct,
   syncPurchaseCardPendingPaymentOperations
 }) {
+  function isCancelledPurchase(compra) {
+    return String(compra?.status || "").trim().toLowerCase() === "anulada";
+  }
+
+  function removeLinkedPurchasePaymentOperations(compra, operations) {
+    (Array.isArray(compra?.paymentHistory) ? compra.paymentHistory : []).forEach(paymentEntry => {
+      syncPurchaseCardPendingPaymentOperations(compra, {
+        ...paymentEntry,
+        paymentMethod: null
+      }, operations);
+    });
+  }
+
   function registerPurchaseRoutes() {
     app.post("/compras", asyncHandler(async (req, res) => {
       await hydrateStore();
@@ -239,6 +252,9 @@ function createPurchaseHandlers({
       if (!compra) {
         return res.status(404).json({ error: "Compra no encontrada." });
       }
+      if (isCancelledPurchase(compra)) {
+        return res.status(400).json({ error: "No se puede aplicar pago a una compra anulada." });
+      }
 
       const currentPaymentType = String(compra.paymentType || "").toLowerCase();
       const originalPaymentType = String(compra.originalPaymentType || compra.paymentType || "").toLowerCase();
@@ -375,6 +391,77 @@ function createPurchaseHandlers({
               : "Abono aplicado correctamente.",
         compra
       });
+    }));
+
+    app.post("/compras/:id/anular", asyncHandler(async (req, res) => {
+      await hydrateStore();
+      const compras = getCompras();
+      const productos = getProductos();
+      const { id } = req.params;
+      if (!id || typeof id !== "string" || !id.trim()) {
+        return res.status(400).json({ error: "ID invÃƒÂ¡lido" });
+      }
+
+      const compra = compras.find(item => String(item.id) === String(id));
+      if (!compra) {
+        return res.status(404).json({ error: "Compra no encontrada." });
+      }
+      if (isCancelledPurchase(compra)) {
+        return res.status(400).json({ error: "La compra ya fue anulada." });
+      }
+
+      const reversals = [];
+      const projectedStockByProductId = new Map();
+      const invalidItem = (Array.isArray(compra.items) ? compra.items : []).find(item => {
+        const producto = productos.find(entry => String(entry.id) === String(item.id));
+        if (!producto) {
+          return true;
+        }
+        const quantityToReverse = getMateriaPrimaStockIncrement(producto, Number(item.cantidad || 0));
+        const productId = String(producto.id);
+        const projectedStock = projectedStockByProductId.has(productId)
+          ? projectedStockByProductId.get(productId)
+          : Number(producto.stock || 0);
+        if (projectedStock - quantityToReverse < -0.0001) {
+          return true;
+        }
+        projectedStockByProductId.set(productId, projectedStock - quantityToReverse);
+        reversals.push({ producto, quantityToReverse });
+        return false;
+      });
+
+      if (invalidItem) {
+        return res.status(400).json({ error: "No se puede anular la compra porque el stock actual no alcanza para revertirla." });
+      }
+
+      const affectedProducts = new Map();
+      reversals.forEach(({ producto, quantityToReverse }) => {
+        producto.stock = Number(producto.stock || 0) - quantityToReverse;
+        affectedProducts.set(String(producto.id), producto);
+      });
+
+      const operations = Array.from(affectedProducts.values()).map(producto => ({
+        type: "set",
+        collection: collections.productos,
+        id: producto.id,
+        data: producto
+      }));
+
+      removeLinkedPurchasePaymentOperations(compra, operations);
+
+      compra.status = "anulada";
+      compra.cancelledAt = new Date().toISOString();
+      compra.cancelledReason = String(req.body?.reason || "").trim() || "Anulada desde la app";
+      compra.paymentHistory = [];
+      compra.totalPaid = 0;
+      compra.balanceDue = 0;
+      compra.paidAt = null;
+      compra.paymentReference = null;
+      ensurePurchaseFinancialState(compra);
+
+      operations.push({ type: "set", collection: collections.compras, id: compra.id, data: compra });
+      await commitBatch(operations);
+      res.json({ message: "Compra anulada y stock revertido correctamente.", compra });
     }));
   }
 

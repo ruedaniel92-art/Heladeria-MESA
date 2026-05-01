@@ -33,6 +33,34 @@ function createSalesHandlers({
   normalizeFlavorName,
   saveRecord
 }) {
+  function isCancelledSale(venta) {
+    return String(venta?.status || "").trim().toLowerCase() === "anulada";
+  }
+
+  function addStock(productos, productId, quantity, affectedProducts) {
+    const producto = productos.find(entry => String(entry.id) === String(productId));
+    const amount = Number(quantity || 0);
+    if (!producto || amount <= 0) {
+      return;
+    }
+    producto.stock = Number(producto.stock || 0) + amount;
+    affectedProducts.set(String(producto.id), producto);
+  }
+
+  function decrementControlMetric(collection, controlId, metric, amount, affectedControls) {
+    const id = String(controlId || "");
+    const quantity = Number(amount || 0);
+    if (!id || quantity <= 0) {
+      return;
+    }
+    const control = collection.find(entry => String(entry.id) === id);
+    if (!control) {
+      return;
+    }
+    control[metric] = Math.max(Number(control[metric] || 0) - quantity, 0);
+    affectedControls.set(String(control.id), control);
+  }
+
   function registerSalesRoutes() {
     app.post("/ventas", asyncHandler(async (req, res) => {
       await hydrateStore();
@@ -778,6 +806,9 @@ function createSalesHandlers({
       if (!venta) {
         return res.status(404).json({ error: "Venta no encontrada." });
       }
+      if (isCancelledSale(venta)) {
+        return res.status(400).json({ error: "No se puede aplicar pago a una venta anulada." });
+      }
 
       const currentPaymentType = String(venta.paymentType || "").toLowerCase();
       const originalPaymentType = String(venta.originalPaymentType || venta.paymentType || "").toLowerCase();
@@ -907,6 +938,110 @@ function createSalesHandlers({
               : "Abono aplicado correctamente.",
         venta
       });
+    }));
+
+    app.post("/ventas/:id/anular", asyncHandler(async (req, res) => {
+      await hydrateStore();
+      const { id } = req.params;
+      if (!id || typeof id !== "string" || !id.trim()) {
+        return res.status(400).json({ error: "ID invÃ¡lido" });
+      }
+
+      const productos = getProductos();
+      const baldesControl = getBaldesControl();
+      const toppingControls = getToppingControls();
+      const sauceControls = getSauceControls();
+      const venta = getVentas().find(item => String(item.id) === String(id));
+
+      if (!venta) {
+        return res.status(404).json({ error: "Venta no encontrada." });
+      }
+      if (isCancelledSale(venta)) {
+        return res.status(400).json({ error: "La venta ya fue anulada." });
+      }
+
+      const affectedProducts = new Map();
+      const affectedBuckets = new Map();
+      const affectedToppingControls = new Map();
+      const affectedSauceControls = new Map();
+
+      (Array.isArray(venta.items) ? venta.items : []).forEach(item => {
+        const producto = productos.find(entry => String(entry.id) === String(item.id));
+        const inventoryMode = item.modoControl || getProductInventoryMode(producto);
+        const itemQuantity = Number(item.cantidad || 0);
+
+        if (producto && inventoryMode === "directo") {
+          addStock(productos, producto.id, itemQuantity, affectedProducts);
+        }
+
+        if (inventoryMode === "receta" || inventoryMode === "mixto" || (inventoryMode === "personalizado" && Array.isArray(item.ingredientes) && item.ingredientes.length > 0)) {
+          (item.ingredientes || []).forEach(ingredient => {
+            addStock(productos, ingredient.id, Number(ingredient.cantidad || 0), affectedProducts);
+          });
+        }
+
+        if (inventoryMode === "personalizado") {
+          (item.componentes || []).forEach(component => {
+            const quantity = Number(component.cantidadTotal || 0);
+            addStock(productos, component.id, quantity, affectedProducts);
+            decrementControlMetric(baldesControl, component.baldeControlId, "porcionesVendidas", quantity, affectedBuckets);
+            decrementControlMetric(toppingControls, component.toppingControlId, "porcionesVendidas", quantity, affectedToppingControls);
+            decrementControlMetric(sauceControls, component.sauceControlId, "porcionesVendidas", quantity, affectedSauceControls);
+          });
+
+          [...new Set((item.componentes || []).map(component => String(component.baldeControlId || "")).filter(Boolean))]
+            .forEach(controlId => decrementControlMetric(baldesControl, controlId, "ventasAsociadas", 1, affectedBuckets));
+          [...new Set((item.componentes || []).map(component => String(component.toppingControlId || "")).filter(Boolean))]
+            .forEach(controlId => decrementControlMetric(toppingControls, controlId, "ventasAsociadas", 1, affectedToppingControls));
+          [...new Set((item.componentes || []).map(component => String(component.sauceControlId || "")).filter(Boolean))]
+            .forEach(controlId => decrementControlMetric(sauceControls, controlId, "ventasAsociadas", 1, affectedSauceControls));
+        }
+
+        if (inventoryMode === "helado-sabores" || inventoryMode === "mixto") {
+          (item.sabores || []).forEach(flavor => {
+            const quantity = Number(flavor.porciones || 0);
+            addStock(productos, flavor.materiaPrimaId, quantity, affectedProducts);
+            decrementControlMetric(baldesControl, flavor.baldeControlId, "porcionesVendidas", quantity, affectedBuckets);
+          });
+
+          [...new Set((item.sabores || []).map(flavor => String(flavor.baldeControlId || "")).filter(Boolean))]
+            .forEach(controlId => decrementControlMetric(baldesControl, controlId, "ventasAsociadas", 1, affectedBuckets));
+        }
+
+        (item.adicionales || []).forEach(adicional => {
+          const quantity = Number(adicional.cantidad || 0);
+          addStock(productos, adicional.materiaPrimaId, quantity, affectedProducts);
+          decrementControlMetric(toppingControls, adicional.toppingControlId, "porcionesVendidas", quantity, affectedToppingControls);
+          decrementControlMetric(sauceControls, adicional.sauceControlId, "porcionesVendidas", quantity, affectedSauceControls);
+          decrementControlMetric(baldesControl, adicional.baldeControlId, "porcionesVendidas", quantity, affectedBuckets);
+        });
+
+        [...new Set((item.adicionales || []).map(adicional => String(adicional.baldeControlId || "")).filter(Boolean))]
+          .forEach(controlId => decrementControlMetric(baldesControl, controlId, "ventasAsociadas", 1, affectedBuckets));
+        [...new Set((item.adicionales || []).map(adicional => String(adicional.toppingControlId || "")).filter(Boolean))]
+          .forEach(controlId => decrementControlMetric(toppingControls, controlId, "ventasAsociadas", 1, affectedToppingControls));
+        [...new Set((item.adicionales || []).map(adicional => String(adicional.sauceControlId || "")).filter(Boolean))]
+          .forEach(controlId => decrementControlMetric(sauceControls, controlId, "ventasAsociadas", 1, affectedSauceControls));
+      });
+
+      venta.status = "anulada";
+      venta.cancelledAt = new Date().toISOString();
+      venta.cancelledReason = String(req.body?.reason || "").trim() || "Anulada desde la app";
+      venta.paymentHistory = [];
+      venta.totalPaid = 0;
+      venta.balanceDue = 0;
+      venta.paidAt = null;
+      venta.paymentReference = null;
+      ensureSaleFinancialState(venta);
+
+      await commitBatch([
+        ...Array.from(affectedProducts.values()).map(producto => ({ type: "set", collection: collections.productos, id: producto.id, data: producto })),
+        ...Array.from(affectedBuckets.values()).map(bucket => ({ type: "set", collection: collections.baldesControl, id: bucket.id, data: bucket })),
+        ...Array.from(affectedToppingControls.values()).map(control => ({ type: "set", collection: collections.toppingControls, id: control.id, data: control })),
+        ...Array.from(affectedSauceControls.values()).map(control => ({ type: "set", collection: collections.sauceControls, id: control.id, data: control })),
+        { type: "set", collection: collections.ventas, id: venta.id, data: venta }
+      ]);
+      res.json({ message: "Venta anulada y stock restaurado correctamente.", venta });
     }));
   }
 
