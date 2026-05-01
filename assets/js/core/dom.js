@@ -344,6 +344,8 @@ export function getDomRefs() {
   const inventoryKardexList = document.getElementById('inventory-kardex-list');
   const inventoryInitialForm = document.getElementById('inventory-initial-form');
   const inventoryInitialProductInput = document.getElementById('inventory-initial-product');
+  const inventoryInitialLinkField = document.getElementById('inventory-initial-link-field');
+  const inventoryInitialLinkInput = document.getElementById('inventory-initial-link');
   const inventoryInitialDateInput = document.getElementById('inventory-initial-date');
   const inventoryInitialQuantityInput = document.getElementById('inventory-initial-quantity');
   const inventoryInitialUnitCostInput = document.getElementById('inventory-initial-unit-cost');
@@ -796,6 +798,8 @@ export function getDomRefs() {
     inventoryKardexList,
     inventoryInitialForm,
     inventoryInitialProductInput,
+    inventoryInitialLinkField,
+    inventoryInitialLinkInput,
     inventoryInitialDateInput,
     inventoryInitialQuantityInput,
     inventoryInitialUnitCostInput,

@@ -762,6 +762,9 @@ const { registerInventoryRoutes } = createInventoryHandlers({
   commitBatch,
   getInventoryMovements: () => inventoryMovements,
   getProductos: () => productos,
+  getSalsas: () => salsas,
+  getSabores: () => sabores,
+  getToppings: () => toppings,
   hydrateStore
 });
 
@@ -798,7 +801,6 @@ if (require.main === module) {
     console.log(`Servidor en http://localhost:${port}`);
   });
 }
-
 
 
 

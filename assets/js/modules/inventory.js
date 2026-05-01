@@ -254,11 +254,18 @@ export function createInventoryModule(context) {
           : movementDirection === 'salida'
             ? 'Ajuste salida'
             : 'Ajuste entrada';
+      const linkedLabel = movement.flavorName
+        ? `Sabor ${movement.flavorName}`
+        : movement.toppingName
+          ? `Topping ${movement.toppingName}`
+          : movement.sauceName
+            ? `Salsa/aderezo ${movement.sauceName}`
+            : '';
       pushMovement({
         date: movement.fecha || movement.createdAt,
         type: typeLabel,
         document: movement.referencia || '-',
-        detail: movement.observacion || 'Movimiento manual de inventario',
+        detail: [movement.observacion || 'Movimiento manual de inventario', linkedLabel].filter(Boolean).join(' · '),
         input: isInput ? quantity : 0,
         output: isInput ? 0 : quantity,
         unitCost: isInput ? Number(movement.costoUnitario || 0) : null,

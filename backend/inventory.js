@@ -6,6 +6,9 @@ function createInventoryHandlers({
   commitBatch,
   getInventoryMovements,
   getProductos,
+  getSalsas,
+  getSabores,
+  getToppings,
   hydrateStore
 }) {
   function registerInventoryRoutes() {
@@ -24,6 +27,9 @@ function createInventoryHandlers({
       const unitCost = Number(req.body?.unitCost);
       const note = String(req.body?.note || "").trim();
       const movementDate = req.body?.date ? new Date(req.body.date) : new Date();
+      const flavorId = req.body?.flavorId !== undefined && req.body?.flavorId !== null ? String(req.body.flavorId).trim() : "";
+      const toppingId = req.body?.toppingId !== undefined && req.body?.toppingId !== null ? String(req.body.toppingId).trim() : "";
+      const sauceId = req.body?.sauceId !== undefined && req.body?.sauceId !== null ? String(req.body.sauceId).trim() : "";
 
       if (!productId) {
         return res.status(400).json({ error: "Selecciona un producto válido." });
@@ -44,9 +50,52 @@ function createInventoryHandlers({
         return res.status(404).json({ error: "Producto no encontrado." });
       }
 
+      const linkedFlavors = getSabores().filter(flavor => String(flavor.materiaPrimaId || "") === productId);
+      const linkedToppings = getToppings().filter(topping => String(topping.materiaPrimaId || "") === productId);
+      const linkedSauces = getSalsas().filter(sauce => String(sauce.materiaPrimaId || "") === productId);
+      let selectedFlavor = null;
+      let selectedTopping = null;
+      let selectedSauce = null;
+
+      if (linkedFlavors.length || linkedToppings.length || linkedSauces.length) {
+        const selectedLinksCount = [flavorId, toppingId, sauceId].filter(Boolean).length;
+        if (selectedLinksCount !== 1) {
+          return res.status(400).json({ error: "Selecciona el sabor, topping o salsa/aderezo al que pertenece este inventario inicial." });
+        }
+
+        if (flavorId) {
+          selectedFlavor = linkedFlavors.find(flavor => String(flavor.id) === flavorId) || null;
+          if (!selectedFlavor) {
+            return res.status(400).json({ error: "Selecciona un sabor valido para esta materia prima." });
+          }
+        }
+
+        if (toppingId) {
+          selectedTopping = linkedToppings.find(topping => String(topping.id) === toppingId) || null;
+          if (!selectedTopping) {
+            return res.status(400).json({ error: "Selecciona un topping valido para esta materia prima." });
+          }
+        }
+
+        if (sauceId) {
+          selectedSauce = linkedSauces.find(sauce => String(sauce.id) === sauceId) || null;
+          if (!selectedSauce) {
+            return res.status(400).json({ error: "Selecciona una salsa/aderezo valido para esta materia prima." });
+          }
+        }
+      }
+
       const previousStock = Number(producto.stock || 0);
       const nextStock = previousStock + quantity;
       producto.stock = nextStock;
+      const linkedName = selectedFlavor?.nombre || selectedTopping?.nombre || selectedSauce?.nombre || "";
+      const linkedDetail = selectedFlavor
+        ? `Sabor ${selectedFlavor.nombre}`
+        : selectedTopping
+          ? `Topping ${selectedTopping.nombre}`
+          : selectedSauce
+            ? `Salsa/aderezo ${selectedSauce.nombre}`
+            : "";
 
       const movement = buildInventoryMovement({
         producto,
@@ -54,12 +103,21 @@ function createInventoryHandlers({
         direccion: "entrada",
         cantidad: quantity,
         fecha: movementDate.toISOString(),
-        observacion: note || "Carga de inventario inicial",
+        observacion: note || (linkedDetail ? `Carga de inventario inicial para ${linkedDetail}` : "Carga de inventario inicial"),
         referencia: "Inventario inicial",
         saldoAnterior: previousStock,
         saldoNuevo: nextStock,
         costoUnitario: unitCost,
-        costoTotal: quantity * unitCost
+        costoTotal: quantity * unitCost,
+        extraFields: {
+          flavorId: selectedFlavor ? selectedFlavor.id : null,
+          flavorName: selectedFlavor ? selectedFlavor.nombre : null,
+          toppingId: selectedTopping ? selectedTopping.id : null,
+          toppingName: selectedTopping ? selectedTopping.nombre : null,
+          sauceId: selectedSauce ? selectedSauce.id : null,
+          sauceName: selectedSauce ? selectedSauce.nombre : null,
+          linkedName: linkedName || null
+        }
       });
 
       getInventoryMovements().push(movement);

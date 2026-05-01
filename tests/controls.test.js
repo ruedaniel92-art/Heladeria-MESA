@@ -94,6 +94,72 @@ module.exports = [
     }
   },
   {
+    name: "control de balde abre con inventario inicial asignado a sabor",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Helado inicial",
+              tipo: "materia prima",
+              stockMin: 1,
+              medida: "balde",
+              rendimientoPorCompra: 20
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productId = (await productResponse.json()).producto.id;
+
+          const flavorResponse = await fetch(`${baseUrl}/sabores`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Vainilla inicial",
+              materiaPrimaId: productId
+            })
+          });
+          assert.equal(flavorResponse.status, 201);
+          const flavorId = (await flavorResponse.json()).sabor.id;
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              productId,
+              flavorId,
+              quantity: 20,
+              unitCost: 2,
+              date: "2026-04-27"
+            })
+          });
+          assert.equal(inventoryResponse.status, 201);
+          const inventoryResult = await inventoryResponse.json();
+          assert.equal(inventoryResult.movement.flavorId, flavorId);
+
+          const openResponse = await fetch(`${baseUrl}/baldes-control/abrir`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              saborId: flavorId,
+              fechaApertura: "2026-04-28"
+            })
+          });
+          assert.equal(openResponse.status, 201);
+          const openResult = await openResponse.json();
+          assert.equal(openResult.balde.saborId, flavorId);
+          assert.equal(openResult.balde.estado, "abierto");
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
     name: "cierre de salsa descuenta merma fisica sin cambiar costo por rendimiento real",
     async run() {
       const { app, restore } = loadApp();

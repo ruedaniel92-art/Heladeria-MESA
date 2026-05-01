@@ -467,6 +467,8 @@
       inventoryKardexList,
       inventoryInitialForm,
       inventoryInitialProductInput,
+      inventoryInitialLinkField,
+      inventoryInitialLinkInput,
       inventoryInitialDateInput,
       inventoryInitialQuantityInput,
       inventoryInitialUnitCostInput,
@@ -1956,6 +1958,18 @@
       return 'Asignar a';
     }
 
+    function getInventoryInitialLinkedTargetLabel(producto) {
+      const targets = getPurchaseLinkedTargets(producto);
+      if (!targets.length) return 'Asignar a';
+      const types = [...new Set(targets.map(target => target.type))];
+      if (types.length === 1) {
+        if (types[0] === 'flavor') return 'Sabor';
+        if (types[0] === 'topping') return 'Topping';
+        return 'Salsa / aderezo';
+      }
+      return 'Asignar a';
+    }
+
     function productRequiresPurchaseLink(producto) {
       return getPurchaseLinkedTargets(producto).length > 0;
     }
@@ -1998,6 +2012,27 @@
       return state.sauces.find(item => String(item.nombre || '').trim().toLowerCase() === normalizedName) || null;
     }
 
+    function isCancelledRecord(record) {
+      return String(record?.status || '').trim().toLowerCase() === 'anulada';
+    }
+
+    function getInitialLinkedMovementStock({ rawMaterialId, linkField, linkedId, linkedCount }) {
+      return state.inventoryMovements.reduce((total, movement) => {
+        if (String(movement.tipo || '').trim().toLowerCase() !== 'inventario-inicial') {
+          return total;
+        }
+        if (String(movement.productoId || '') !== String(rawMaterialId)) {
+          return total;
+        }
+        const matchesLinkedTarget = String(movement[linkField] || '') === String(linkedId);
+        const isSingleLinkedTarget = !movement[linkField] && linkedCount === 1;
+        if (!matchesLinkedTarget && !isSingleLinkedTarget) {
+          return total;
+        }
+        return total + Number(movement.cantidad || 0);
+      }, 0);
+    }
+
     function getToppingRawMaterial(toppingId) {
       const topping = getToppingById(toppingId);
       if (!topping) return null;
@@ -2016,7 +2051,7 @@
       }
 
       const linkedFlavors = getFlavorsByRawMaterialId(flavor.materiaPrimaId);
-      return state.purchases.reduce((total, compra) => {
+      const purchasedStock = state.purchases.filter(compra => !isCancelledRecord(compra)).reduce((total, compra) => {
         const items = Array.isArray(compra.items) ? compra.items : [];
         return total + items.reduce((sum, item) => {
           if (String(item.id || '') !== String(flavor.materiaPrimaId)) {
@@ -2037,6 +2072,13 @@
           return sum + getInventoryStockIncrement(materiaPrima, Number(item.cantidad || 0));
         }, 0);
       }, 0);
+
+      return purchasedStock + getInitialLinkedMovementStock({
+        rawMaterialId: flavor.materiaPrimaId,
+        linkField: 'flavorId',
+        linkedId: normalizedFlavorId,
+        linkedCount: linkedFlavors.length
+      });
     }
 
     function getFlavorConsumedStock(flavorId) {
@@ -2045,7 +2087,7 @@
         return 0;
       }
 
-      return state.sales.reduce((total, venta) => {
+      return state.sales.filter(venta => !isCancelledRecord(venta)).reduce((total, venta) => {
         const items = Array.isArray(venta.items) ? venta.items : [];
         return total + items.reduce((sum, item) => {
           const flavors = Array.isArray(item.sabores) ? item.sabores : [];
@@ -2084,7 +2126,7 @@
       }
 
       const linkedToppings = getToppingsByRawMaterialId(topping.materiaPrimaId);
-      return state.purchases.reduce((total, compra) => {
+      const purchasedStock = state.purchases.filter(compra => !isCancelledRecord(compra)).reduce((total, compra) => {
         const items = Array.isArray(compra.items) ? compra.items : [];
         return total + items.reduce((sum, item) => {
           if (String(item.id || '') !== String(topping.materiaPrimaId)) {
@@ -2105,6 +2147,13 @@
           return sum + getInventoryStockIncrement(materiaPrima, Number(item.cantidad || 0));
         }, 0);
       }, 0);
+
+      return purchasedStock + getInitialLinkedMovementStock({
+        rawMaterialId: topping.materiaPrimaId,
+        linkField: 'toppingId',
+        linkedId: normalizedToppingId,
+        linkedCount: linkedToppings.length
+      });
     }
 
     function getToppingConsumedStock(toppingId) {
@@ -2113,7 +2162,7 @@
         return 0;
       }
 
-      return state.sales.reduce((total, venta) => {
+      return state.sales.filter(venta => !isCancelledRecord(venta)).reduce((total, venta) => {
         const items = Array.isArray(venta.items) ? venta.items : [];
         return total + items.reduce((sum, item) => {
           const addons = Array.isArray(item.adicionales) ? item.adicionales : [];
@@ -2152,7 +2201,7 @@
       }
 
       const linkedSauces = getSaucesByRawMaterialId(sauce.materiaPrimaId);
-      return state.purchases.reduce((total, compra) => {
+      const purchasedStock = state.purchases.filter(compra => !isCancelledRecord(compra)).reduce((total, compra) => {
         const items = Array.isArray(compra.items) ? compra.items : [];
         return total + items.reduce((sum, item) => {
           if (String(item.id || '') !== String(sauce.materiaPrimaId)) {
@@ -2173,6 +2222,13 @@
           return sum + getInventoryStockIncrement(materiaPrima, Number(item.cantidad || 0));
         }, 0);
       }, 0);
+
+      return purchasedStock + getInitialLinkedMovementStock({
+        rawMaterialId: sauce.materiaPrimaId,
+        linkField: 'sauceId',
+        linkedId: normalizedSauceId,
+        linkedCount: linkedSauces.length
+      });
     }
 
     function getSauceConsumedStock(sauceId) {
@@ -2181,7 +2237,7 @@
         return 0;
       }
 
-      return state.sales.reduce((total, venta) => {
+      return state.sales.filter(venta => !isCancelledRecord(venta)).reduce((total, venta) => {
         const items = Array.isArray(venta.items) ? venta.items : [];
         return total + items.reduce((sum, item) => {
           const addons = Array.isArray(item.adicionales) ? item.adicionales : [];
@@ -3342,6 +3398,28 @@
         ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
         : new Date(dateString);
       return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
+    function buildInventoryInitialLinkedOptions(productId, selectedValue = '') {
+      const producto = findProductById(productId);
+      const targets = getPurchaseLinkedTargets(producto);
+      if (!targets.length) {
+        return '<option value="">Sin vinculos</option>';
+      }
+      return [`<option value="">Selecciona una opcion</option>`, ...targets.map(target => {
+        const value = `${target.type}:${target.id}`;
+        const label = target.type === 'flavor'
+          ? `${target.name} · sabor`
+          : target.type === 'topping'
+            ? `${target.name} · topping`
+            : `${target.name} · salsa/aderezo`;
+        return `<option value="${escapeHtml(value)}" ${value === selectedValue ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+      })].join('');
+    }
+
+    function parseLinkedTargetValue(value) {
+      const [type = '', id = ''] = String(value || '').split(':');
+      return { type, id };
     }
 
     function isCreditSale(venta) {
@@ -7033,6 +7111,25 @@
       }
     }
 
+    function updateInventoryInitialLinkVisibility() {
+      if (!inventoryInitialProductInput || !inventoryInitialLinkField || !inventoryInitialLinkInput) {
+        return;
+      }
+      const producto = findProductById(inventoryInitialProductInput.value);
+      const requiresLink = productRequiresPurchaseLink(producto);
+      inventoryInitialLinkField.classList.toggle('field-hidden', !requiresLink);
+      inventoryInitialLinkInput.required = requiresLink;
+      const currentValue = inventoryInitialLinkInput.value;
+      inventoryInitialLinkInput.innerHTML = buildInventoryInitialLinkedOptions(producto?.id || '', currentValue);
+      const label = inventoryInitialLinkField.querySelector('label');
+      if (label) {
+        label.textContent = getInventoryInitialLinkedTargetLabel(producto);
+      }
+      if (!requiresLink) {
+        inventoryInitialLinkInput.value = '';
+      }
+    }
+
     function resetInventoryMovementForms() {
       const today = getTodayInputValue();
       if (inventoryInitialForm) inventoryInitialForm.reset();
@@ -7040,11 +7137,13 @@
       if (inventoryInitialDateInput) inventoryInitialDateInput.value = today;
       if (inventoryAdjustmentDateInput) inventoryAdjustmentDateInput.value = today;
       if (inventoryAdjustmentTypeInput) inventoryAdjustmentTypeInput.value = 'entrada';
+      if (inventoryInitialLinkInput) inventoryInitialLinkInput.value = '';
       if (inventoryInitialUnitCostInput) inventoryInitialUnitCostInput.value = '';
       if (inventoryAdjustmentUnitCostInput) inventoryAdjustmentUnitCostInput.value = '';
       setInventoryInitialStatus('Registra una carga inicial para sumar existencias al inventario actual.');
       setInventoryAdjustmentStatus('Usa los ajustes para corregir diferencias por entrada o salida de stock.');
       updateInventoryAdjustmentCostVisibility();
+      updateInventoryInitialLinkVisibility();
       syncSearchablePickerTrigger(inventoryInitialProductInput);
       syncSearchablePickerTrigger(inventoryAdjustmentProductInput);
     }
@@ -7054,6 +7153,7 @@
         const selectedInitialProduct = inventoryInitialProductInput.value;
         inventoryInitialProductInput.innerHTML = buildInventoryMovementProductOptions(selectedInitialProduct);
       }
+      updateInventoryInitialLinkVisibility();
       if (inventoryAdjustmentProductInput) {
         const selectedAdjustmentProduct = inventoryAdjustmentProductInput.value;
         inventoryAdjustmentProductInput.innerHTML = buildInventoryMovementProductOptions(selectedAdjustmentProduct);
@@ -8851,6 +8951,7 @@
     inventoryKardexProductInput.addEventListener('change', renderInventoryKardex);
     exportInventoryKardexExcelButton.addEventListener('click', exportInventoryKardexExcel);
     exportInventoryKardexPdfButton.addEventListener('click', exportInventoryKardexPdf);
+    inventoryInitialProductInput.addEventListener('change', updateInventoryInitialLinkVisibility);
     inventoryAdjustmentTypeInput.addEventListener('change', updateInventoryAdjustmentCostVisibility);
     inventoryInitialForm.addEventListener('submit', async event => {
       event.preventDefault();
@@ -8859,11 +8960,15 @@
         return;
       }
       try {
+        const initialLinkedTarget = parseLinkedTargetValue(inventoryInitialLinkInput?.value || '');
         const response = await fetch(buildApiUrl('/inventario/inicial'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             productId: inventoryInitialProductInput.value,
+            flavorId: initialLinkedTarget.type === 'flavor' ? initialLinkedTarget.id : null,
+            toppingId: initialLinkedTarget.type === 'topping' ? initialLinkedTarget.id : null,
+            sauceId: initialLinkedTarget.type === 'sauce' ? initialLinkedTarget.id : null,
             date: inventoryInitialDateInput.value,
             quantity: Number(inventoryInitialQuantityInput.value),
             unitCost: Number(inventoryInitialUnitCostInput.value),

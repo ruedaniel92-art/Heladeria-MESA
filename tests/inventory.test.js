@@ -58,6 +58,54 @@ module.exports = [
     }
   },
   {
+    name: "inventario inicial exige sabor cuando materia prima esta vinculada",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Helado vinculado",
+              tipo: "materia prima",
+              stockMin: 1,
+              medida: "balde",
+              rendimientoPorCompra: 20
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productId = (await productResponse.json()).producto.id;
+
+          const flavorResponse = await fetch(`${baseUrl}/sabores`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Chocolate vinculado",
+              materiaPrimaId: productId
+            })
+          });
+          assert.equal(flavorResponse.status, 201);
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              productId,
+              quantity: 20,
+              unitCost: 2
+            })
+          });
+          assert.equal(inventoryResponse.status, 400);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
     name: "producto con movimiento de inventario no se puede eliminar",
     async run() {
       const { app, restore } = loadApp();

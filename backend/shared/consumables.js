@@ -25,6 +25,27 @@ function createConsumableHelpers({
   function getActiveSauceControlForSauce(sauceId) {
     return getSauceControls().find(control => String(control.sauceId) === String(sauceId) && control.estado === 'abierto');
   }
+
+  function isCancelled(record) {
+    return String(record?.status || '').trim().toLowerCase() === 'anulada';
+  }
+
+  function getInitialLinkedMovementStock({ rawMaterialId, linkField, linkedId, linkedCount }) {
+    return getInventoryMovements().reduce((total, movement) => {
+      if (String(movement.tipo || '').trim().toLowerCase() !== 'inventario-inicial') {
+        return total;
+      }
+      if (String(movement.productoId || '') !== String(rawMaterialId)) {
+        return total;
+      }
+      const matchesLinkedTarget = String(movement[linkField] || '') === String(linkedId);
+      const isSingleLinkedTarget = !movement[linkField] && linkedCount === 1;
+      if (!matchesLinkedTarget && !isSingleLinkedTarget) {
+        return total;
+      }
+      return total + Number(movement.cantidad || 0);
+    }, 0);
+  }
   
   function getFlavorPurchasedStock(flavorId) {
     const normalizedFlavorId = String(flavorId || '').trim();
@@ -39,7 +60,7 @@ function createConsumableHelpers({
   
     const linkedFlavors = getSabores().filter(item => String(item.materiaPrimaId || '') === String(flavor.materiaPrimaId));
   
-    return getCompras().reduce((total, compra) => {
+    const purchasedStock = getCompras().filter(compra => !isCancelled(compra)).reduce((total, compra) => {
       const items = Array.isArray(compra.items) ? compra.items : [];
       return total + items.reduce((sum, item) => {
         if (String(item.id || '') !== String(flavor.materiaPrimaId)) {
@@ -60,6 +81,13 @@ function createConsumableHelpers({
         return sum + getMateriaPrimaStockIncrement(materiaPrima, Number(item.cantidad || 0));
       }, 0);
     }, 0);
+
+    return purchasedStock + getInitialLinkedMovementStock({
+      rawMaterialId: flavor.materiaPrimaId,
+      linkField: 'flavorId',
+      linkedId: normalizedFlavorId,
+      linkedCount: linkedFlavors.length
+    });
   }
   
   function getFlavorConsumedStock(flavorId) {
@@ -68,7 +96,7 @@ function createConsumableHelpers({
       return 0;
     }
   
-    return getVentas().reduce((total, venta) => {
+    return getVentas().filter(venta => !isCancelled(venta)).reduce((total, venta) => {
       const items = Array.isArray(venta.items) ? venta.items : [];
       return total + items.reduce((sum, item) => {
         const flavors = Array.isArray(item.sabores) ? item.sabores : [];
@@ -97,7 +125,7 @@ function createConsumableHelpers({
     }
   
     const linkedToppings = getToppings().filter(item => String(item.materiaPrimaId || '') === String(topping.materiaPrimaId));
-    return getCompras().reduce((total, compra) => {
+    const purchasedStock = getCompras().filter(compra => !isCancelled(compra)).reduce((total, compra) => {
       const items = Array.isArray(compra.items) ? compra.items : [];
       return total + items.reduce((sum, item) => {
         if (String(item.id || '') !== String(topping.materiaPrimaId)) {
@@ -118,6 +146,13 @@ function createConsumableHelpers({
         return sum + getMateriaPrimaStockIncrement(materiaPrima, Number(item.cantidad || 0));
       }, 0);
     }, 0);
+
+    return purchasedStock + getInitialLinkedMovementStock({
+      rawMaterialId: topping.materiaPrimaId,
+      linkField: 'toppingId',
+      linkedId: normalizedToppingId,
+      linkedCount: linkedToppings.length
+    });
   }
   
   function getToppingConsumedStock(toppingId) {
@@ -126,7 +161,7 @@ function createConsumableHelpers({
       return 0;
     }
   
-    return getVentas().reduce((total, venta) => {
+    return getVentas().filter(venta => !isCancelled(venta)).reduce((total, venta) => {
       const items = Array.isArray(venta.items) ? venta.items : [];
       return total + items.reduce((sum, item) => {
         const adicionales = Array.isArray(item.adicionales) ? item.adicionales : [];
@@ -155,7 +190,7 @@ function createConsumableHelpers({
     }
   
     const linkedSauces = getSalsas().filter(item => String(item.materiaPrimaId || '') === String(sauce.materiaPrimaId));
-    return getCompras().reduce((total, compra) => {
+    const purchasedStock = getCompras().filter(compra => !isCancelled(compra)).reduce((total, compra) => {
       const items = Array.isArray(compra.items) ? compra.items : [];
       return total + items.reduce((sum, item) => {
         if (String(item.id || '') !== String(sauce.materiaPrimaId)) {
@@ -176,6 +211,13 @@ function createConsumableHelpers({
         return sum + getMateriaPrimaStockIncrement(materiaPrima, Number(item.cantidad || 0));
       }, 0);
     }, 0);
+
+    return purchasedStock + getInitialLinkedMovementStock({
+      rawMaterialId: sauce.materiaPrimaId,
+      linkField: 'sauceId',
+      linkedId: normalizedSauceId,
+      linkedCount: linkedSauces.length
+    });
   }
   
   function getSauceConsumedStock(sauceId) {
@@ -184,7 +226,7 @@ function createConsumableHelpers({
       return 0;
     }
   
-    return getVentas().reduce((total, venta) => {
+    return getVentas().filter(venta => !isCancelled(venta)).reduce((total, venta) => {
       const items = Array.isArray(venta.items) ? venta.items : [];
       return total + items.reduce((sum, item) => {
         const adicionales = Array.isArray(item.adicionales) ? item.adicionales : [];
@@ -295,7 +337,7 @@ function createConsumableHelpers({
     }
   
     const layers = [];
-    sortRecordsByDate(getCompras()).forEach(compra => {
+    sortRecordsByDate(getCompras()).filter(compra => !isCancelled(compra)).forEach(compra => {
       const items = Array.isArray(compra.items) ? compra.items : [];
       items.forEach((item, itemIndex) => {
         if (String(item.id || '') !== String(rawMaterial.id)) {
@@ -332,8 +374,46 @@ function createConsumableHelpers({
         }
       });
     });
+
+    sortRecordsByDate(getInventoryMovements()).forEach((movement, movementIndex) => {
+      if (String(movement.tipo || '').trim().toLowerCase() !== 'inventario-inicial') {
+        return;
+      }
+      if (String(movement.productoId || '') !== String(rawMaterial.id)) {
+        return;
+      }
+
+      const linkedId = String(movement[config.purchaseLinkField] || '').trim();
+      const matchesEntity = linkedId === String(entity.id) || (!linkedId && linkedEntities.length === 1);
+      if (!matchesEntity) {
+        return;
+      }
+
+      let remainingYield = Number(movement.cantidad || 0);
+      const unitCost = Number(movement.costoUnitario || 0);
+      let sequence = 1;
+      while (remainingYield > 0.0000001) {
+        const theoreticalYield = remainingYield >= theoreticalYieldPerUnit ? theoreticalYieldPerUnit : remainingYield;
+        const purchasedUnits = theoreticalYield / theoreticalYieldPerUnit;
+        const totalCost = unitCost * theoreticalYield;
+        layers.push({
+          key: `${String(movement.id || 'initial')}:${movementIndex}:${sequence}`,
+          compraId: null,
+          documentoCompra: movement.referencia || 'Inventario inicial',
+          fechaCompra: movement.fecha || movement.createdAt || null,
+          entidadId: entity.id,
+          entidadNombre: entity.nombre || '',
+          purchasedUnits,
+          costoTotal: totalCost,
+          costoUnitarioTeorico: theoreticalYield > 0 ? totalCost / theoreticalYield : 0,
+          rendimientoTeorico: theoreticalYield
+        });
+        remainingYield -= theoreticalYield;
+        sequence += 1;
+      }
+    });
   
-    return layers;
+    return sortRecordsByDate(layers, 'fechaCompra');
   }
   
   function getAssignedConsumableLayer(kind, control) {
