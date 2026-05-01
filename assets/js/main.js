@@ -474,6 +474,7 @@
       inventoryInitialUnitCostInput,
       inventoryInitialNoteInput,
       inventoryInitialStatus,
+      inventoryInitialRecords,
       inventoryAdjustmentForm,
       inventoryAdjustmentProductInput,
       inventoryAdjustmentDateInput,
@@ -6859,6 +6860,35 @@
       }
     }
 
+    async function deleteInventoryInitialMovement(movementId) {
+      const movement = state.inventoryMovements.find(item => String(item.id) === String(movementId));
+      const label = movement?.productoNombre || 'este inventario inicial';
+      if (!window.confirm(`Eliminar ${label}? Solo se permite si no tiene movimientos relacionados.`)) {
+        return;
+      }
+      try {
+        setInventoryInitialStatus('Eliminando inventario inicial...');
+        const response = await fetch(buildApiUrl(`/inventario/inicial/${encodeURIComponent(movementId)}`), {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const result = await readApiResponse(response);
+        if (!response.ok) {
+          throw new Error(result.error || 'No se pudo eliminar el inventario inicial.');
+        }
+        setInventoryInitialStatus(result.message || 'Inventario inicial eliminado correctamente.');
+        showSuccess(result.message || 'Inventario inicial eliminado correctamente.');
+        await Promise.all([fetchProductos(), fetchInventoryMovements()]);
+        renderInventorySummary();
+        renderInventoryKardex();
+        renderInventoryMovementForms();
+      } catch (error) {
+        setInventoryInitialStatus(error.message, { error: true });
+        showError(error.message);
+        console.error(error);
+      }
+    }
+
     function renderRecipeDetail(producto) {
       if (productUsesRecipe(producto)) {
         const ingredientes = Array.isArray(producto.ingredientes) ? producto.ingredientes : [];
@@ -7130,6 +7160,60 @@
       }
     }
 
+    function getInventoryInitialMovementLabel(movement) {
+      if (movement.flavorName) return `Sabor: ${movement.flavorName}`;
+      if (movement.toppingName) return `Topping: ${movement.toppingName}`;
+      if (movement.sauceName) return `Salsa/aderezo: ${movement.sauceName}`;
+      return '-';
+    }
+
+    function renderInventoryInitialRecords() {
+      if (!inventoryInitialRecords) return;
+      const rows = state.inventoryMovements
+        .filter(movement => String(movement.tipo || '').trim().toLowerCase() === 'inventario-inicial')
+        .slice()
+        .sort((left, right) => new Date(right.fecha || right.createdAt || 0) - new Date(left.fecha || left.createdAt || 0));
+
+      if (!rows.length) {
+        inventoryInitialRecords.innerHTML = '<p class="history-empty">Aun no hay inventarios iniciales registrados.</p>';
+        return;
+      }
+
+      inventoryInitialRecords.innerHTML = `
+        <h4>Inventarios iniciales registrados</h4>
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Producto</th>
+              <th>Asignado a</th>
+              <th>Cantidad</th>
+              <th>Costo unitario</th>
+              <th>Observacion</th>
+              <th>Accion</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(movement => `
+              <tr>
+                <td>${formatDate(movement.fecha || movement.createdAt)}</td>
+                <td>${escapeHtml(movement.productoNombre || '')}</td>
+                <td>${escapeHtml(getInventoryInitialMovementLabel(movement))}</td>
+                <td>${escapeHtml(formatInventoryQuantity(movement.cantidad || 0))}</td>
+                <td>${escapeHtml(formatCurrency(movement.costoUnitario || 0))}</td>
+                <td>${escapeHtml(movement.observacion || '-')}</td>
+                <td><button type="button" class="secondary-btn cancel-record-btn" data-inventory-initial-delete="${escapeHtml(String(movement.id || ''))}" title="Eliminar inventario inicial">Eliminar</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+
+      inventoryInitialRecords.querySelectorAll('[data-inventory-initial-delete]').forEach(button => {
+        button.addEventListener('click', () => deleteInventoryInitialMovement(button.dataset.inventoryInitialDelete));
+      });
+    }
+
     function resetInventoryMovementForms() {
       const today = getTodayInputValue();
       if (inventoryInitialForm) inventoryInitialForm.reset();
@@ -7162,6 +7246,7 @@
       initializeSearchableProductPickers(inventoryAdjustmentsPanel || document);
       syncSearchablePickerTrigger(inventoryInitialProductInput);
       syncSearchablePickerTrigger(inventoryAdjustmentProductInput);
+      renderInventoryInitialRecords();
       if (!inventoryInitialDateInput?.value || !inventoryAdjustmentDateInput?.value) {
         resetInventoryMovementForms();
       }

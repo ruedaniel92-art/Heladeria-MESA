@@ -351,6 +351,7 @@ export function getDomRefs() {
   const inventoryInitialUnitCostInput = document.getElementById('inventory-initial-unit-cost');
   const inventoryInitialNoteInput = document.getElementById('inventory-initial-note');
   const inventoryInitialStatus = document.getElementById('inventory-initial-status');
+  const inventoryInitialRecords = document.getElementById('inventory-initial-records');
   const inventoryAdjustmentForm = document.getElementById('inventory-adjustment-form');
   const inventoryAdjustmentProductInput = document.getElementById('inventory-adjustment-product');
   const inventoryAdjustmentDateInput = document.getElementById('inventory-adjustment-date');
@@ -805,6 +806,7 @@ export function getDomRefs() {
     inventoryInitialUnitCostInput,
     inventoryInitialNoteInput,
     inventoryInitialStatus,
+    inventoryInitialRecords,
     inventoryAdjustmentForm,
     inventoryAdjustmentProductInput,
     inventoryAdjustmentDateInput,

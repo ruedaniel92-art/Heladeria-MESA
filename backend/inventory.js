@@ -4,13 +4,96 @@ function createInventoryHandlers({
   buildInventoryMovement,
   collections,
   commitBatch,
+  getBaldesControl,
+  getCompras,
   getInventoryMovements,
   getProductos,
   getSalsas,
+  getSauceControls,
   getSabores,
+  getToppingControls,
   getToppings,
+  getVentas,
   hydrateStore
 }) {
+  function isCancelled(record) {
+    return String(record?.status || "").trim().toLowerCase() === "anulada";
+  }
+
+  function getInitialMovementLink(movement) {
+    if (movement?.flavorId) {
+      return { type: "flavor", field: "flavorId", id: String(movement.flavorId), controlField: "saborId", controls: getBaldesControl() };
+    }
+    if (movement?.toppingId) {
+      return { type: "topping", field: "toppingId", id: String(movement.toppingId), controlField: "toppingId", controls: getToppingControls() };
+    }
+    if (movement?.sauceId) {
+      return { type: "sauce", field: "sauceId", id: String(movement.sauceId), controlField: "sauceId", controls: getSauceControls() };
+    }
+    return null;
+  }
+
+  function saleTouchesInitialMovement(venta, movement, link) {
+    const items = Array.isArray(venta?.items) ? venta.items : [];
+    if (!link) {
+      return items.some(item => String(item.id || "") === String(movement.productoId)
+        || (Array.isArray(item.ingredientes) && item.ingredientes.some(ingredient => String(ingredient.id || "") === String(movement.productoId)))
+        || (Array.isArray(item.componentes) && item.componentes.some(component => String(component.id || "") === String(movement.productoId)))
+        || (Array.isArray(item.sabores) && item.sabores.some(flavor => String(flavor.materiaPrimaId || "") === String(movement.productoId)))
+        || (Array.isArray(item.adicionales) && item.adicionales.some(addon => String(addon.materiaPrimaId || "") === String(movement.productoId))));
+    }
+
+    return items.some(item => {
+      if (link.type === "flavor") {
+        return (Array.isArray(item.sabores) && item.sabores.some(flavor => String(flavor.id || "") === link.id))
+          || (Array.isArray(item.componentes) && item.componentes.some(component => String(component.sourceCategory || "") === "sabor" && String(component.sourceId || "") === link.id));
+      }
+      if (link.type === "topping") {
+        return (Array.isArray(item.adicionales) && item.adicionales.some(addon => String(addon.id || "") === link.id || String(addon.toppingControlId || "") === link.id))
+          || (Array.isArray(item.componentes) && item.componentes.some(component => String(component.sourceCategory || "") === "topping" && String(component.sourceId || "") === link.id));
+      }
+      return (Array.isArray(item.adicionales) && item.adicionales.some(addon => String(addon.id || "") === link.id || String(addon.sauceControlId || "") === link.id))
+        || (Array.isArray(item.componentes) && item.componentes.some(component => String(component.sourceCategory || "") === "salsa" && String(component.sourceId || "") === link.id));
+    });
+  }
+
+  function purchaseTouchesInitialMovement(compra, movement, link) {
+    const items = Array.isArray(compra?.items) ? compra.items : [];
+    return items.some(item => {
+      if (String(item.id || "") !== String(movement.productoId)) {
+        return false;
+      }
+      return link ? String(item[link.field] || "") === link.id : true;
+    });
+  }
+
+  function hasBlockingActivity(movement) {
+    const link = getInitialMovementLink(movement);
+    const hasInventoryActivity = getInventoryMovements().some(item => {
+      if (String(item.id || "") === String(movement.id || "")) {
+        return false;
+      }
+      if (String(item.productoId || "") !== String(movement.productoId || "")) {
+        return false;
+      }
+      return String(item.tipo || "").trim().toLowerCase() !== "inventario-inicial";
+    });
+    if (hasInventoryActivity) {
+      return true;
+    }
+
+    if (getVentas().filter(venta => !isCancelled(venta)).some(venta => saleTouchesInitialMovement(venta, movement, link))) {
+      return true;
+    }
+    if (getCompras().filter(compra => !isCancelled(compra)).some(compra => purchaseTouchesInitialMovement(compra, movement, link))) {
+      return true;
+    }
+    if (link && link.controls.some(control => String(control[link.controlField] || "") === link.id)) {
+      return true;
+    }
+    return false;
+  }
+
   function registerInventoryRoutes() {
     app.get("/inventario/movimientos", asyncHandler(async (req, res) => {
       await hydrateStore([collections.inventoryMovements], { forceRefresh: true });
@@ -126,6 +209,46 @@ function createInventoryHandlers({
         { type: "set", collection: collections.inventoryMovements, id: movement.id, data: movement }
       ]);
       res.status(201).json({ message: "Inventario inicial registrado correctamente.", movement, producto });
+    }));
+
+    app.delete("/inventario/inicial/:id", asyncHandler(async (req, res) => {
+      await hydrateStore();
+      const { id } = req.params;
+      if (!id || typeof id !== "string" || !id.trim()) {
+        return res.status(400).json({ error: "ID invÃ¡lido" });
+      }
+
+      const movement = getInventoryMovements().find(item => String(item.id) === String(id));
+      if (!movement || String(movement.tipo || "").trim().toLowerCase() !== "inventario-inicial") {
+        return res.status(404).json({ error: "Inventario inicial no encontrado." });
+      }
+      if (hasBlockingActivity(movement)) {
+        return res.status(400).json({ error: "No se puede eliminar este inventario inicial porque ya tiene movimientos relacionados." });
+      }
+
+      const producto = getProductos().find(item => String(item.id) === String(movement.productoId));
+      if (!producto) {
+        return res.status(404).json({ error: "Producto no encontrado." });
+      }
+
+      const quantity = Number(movement.cantidad || 0);
+      const currentStock = Number(producto.stock || 0);
+      if (currentStock - quantity < -0.0001) {
+        return res.status(400).json({ error: "No se puede eliminar porque el stock actual no alcanza para revertir este inventario inicial." });
+      }
+
+      producto.stock = currentStock - quantity;
+      const inventoryMovements = getInventoryMovements();
+      const movementIndex = inventoryMovements.findIndex(item => String(item.id) === String(id));
+      if (movementIndex >= 0) {
+        inventoryMovements.splice(movementIndex, 1);
+      }
+
+      await commitBatch([
+        { type: "set", collection: collections.productos, id: producto.id, data: producto },
+        { type: "delete", collection: collections.inventoryMovements, id }
+      ]);
+      res.json({ message: "Inventario inicial eliminado correctamente.", producto });
     }));
 
     app.post("/inventario/ajustes", asyncHandler(async (req, res) => {

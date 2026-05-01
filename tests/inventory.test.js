@@ -58,6 +58,124 @@ module.exports = [
     }
   },
   {
+    name: "inventario inicial se puede eliminar si no tiene movimientos",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Conos inicial borrable",
+              tipo: "productos",
+              stockMin: 1,
+              precio: 4,
+              modoControl: "directo"
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productId = (await productResponse.json()).producto.id;
+
+          const initialInventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              productId,
+              quantity: 8,
+              unitCost: 1
+            })
+          });
+          assert.equal(initialInventoryResponse.status, 201);
+          const initialMovement = (await initialInventoryResponse.json()).movement;
+
+          const deleteResponse = await fetch(`${baseUrl}/inventario/inicial/${encodeURIComponent(initialMovement.id)}`, {
+            method: "DELETE",
+            headers: authHeaders(token)
+          });
+          assert.equal(deleteResponse.status, 200);
+
+          const inventoryResponse = await fetch(`${baseUrl}/inventario`, {
+            headers: authHeaders(token)
+          });
+          assert.equal(inventoryResponse.status, 200);
+          const inventory = await inventoryResponse.json();
+          assert.equal(inventory.productos.find(item => String(item.id) === String(productId)).stock, 0);
+
+          const movementsResponse = await fetch(`${baseUrl}/inventario/movimientos`, {
+            headers: authHeaders(token)
+          });
+          assert.equal(movementsResponse.status, 200);
+          const movements = await movementsResponse.json();
+          assert.equal(movements.some(movement => String(movement.id) === String(initialMovement.id)), false);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
+    name: "inventario inicial no se elimina si tuvo venta",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          const productResponse = await fetch(`${baseUrl}/productos`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              nombre: "Conos inicial vendido",
+              tipo: "productos",
+              stockMin: 1,
+              precio: 4,
+              modoControl: "directo"
+            })
+          });
+          assert.equal(productResponse.status, 201);
+          const productId = (await productResponse.json()).producto.id;
+
+          const initialInventoryResponse = await fetch(`${baseUrl}/inventario/inicial`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              productId,
+              quantity: 8,
+              unitCost: 1
+            })
+          });
+          assert.equal(initialInventoryResponse.status, 201);
+          const initialMovement = (await initialInventoryResponse.json()).movement;
+
+          const saleResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              cliente: "Cliente con movimiento",
+              fecha: "2026-04-27",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 4,
+              items: [{ id: productId, cantidad: 1, precio: 4 }]
+            })
+          });
+          assert.equal(saleResponse.status, 201);
+
+          const deleteResponse = await fetch(`${baseUrl}/inventario/inicial/${encodeURIComponent(initialMovement.id)}`, {
+            method: "DELETE",
+            headers: authHeaders(token)
+          });
+          assert.equal(deleteResponse.status, 400);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
     name: "inventario inicial exige sabor cuando materia prima esta vinculada",
     async run() {
       const { app, restore } = loadApp();

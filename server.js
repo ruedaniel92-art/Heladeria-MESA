@@ -760,11 +760,16 @@ const { registerInventoryRoutes } = createInventoryHandlers({
   buildInventoryMovement,
   collections: COLLECTIONS,
   commitBatch,
+  getBaldesControl: () => baldesControl,
+  getCompras: () => compras,
   getInventoryMovements: () => inventoryMovements,
   getProductos: () => productos,
   getSalsas: () => salsas,
+  getSauceControls: () => sauceControls,
   getSabores: () => sabores,
+  getToppingControls: () => toppingControls,
   getToppings: () => toppings,
+  getVentas: () => ventas,
   hydrateStore
 });
 
@@ -801,7 +806,6 @@ if (require.main === module) {
     console.log(`Servidor en http://localhost:${port}`);
   });
 }
-
 
 
 
