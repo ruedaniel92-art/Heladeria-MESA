@@ -20,6 +20,7 @@ export function createPurchasesModule(context) {
     getExportDateStamp,
     getLastRecordPayment,
     getNormalizedRecordPaymentHistory,
+    getDateInputValue,
     getTodayInputValue,
     payablesCount,
     payablesFilterDateEndField,
@@ -144,13 +145,25 @@ export function createPurchasesModule(context) {
     return state.purchases.find(compra => String(compra.id) === String(purchaseId)) || null;
   }
 
+  function comparePurchasesByDateDescending(left, right) {
+    const leftDate = new Date(left?.fecha || left?.createdAt || 0).getTime();
+    const rightDate = new Date(right?.fecha || right?.createdAt || 0).getTime();
+    if (leftDate !== rightDate) {
+      return rightDate - leftDate;
+    }
+    return String(right?.documento || right?.document || '').localeCompare(String(left?.documento || left?.document || ''), 'es', {
+      sensitivity: 'base',
+      numeric: true
+    });
+  }
+
   function startEditPurchasePaymentEntry(paymentEntry) {
     if (!paymentEntry) {
       return;
     }
     editingPurchasePaymentEntryId = paymentEntry.id;
     purchasePayableMethodInput.value = paymentEntry.paymentMethod || 'efectivo';
-    purchasePayableDateInput.value = paymentEntry.date ? new Date(paymentEntry.date).toISOString().slice(0, 10) : getTodayInputValue();
+    purchasePayableDateInput.value = getDateInputValue(paymentEntry.date, getTodayInputValue());
     purchasePayableAmountInput.value = Number(paymentEntry.amount || 0).toFixed(2);
     purchasePayableReferenceInput.value = paymentEntry.paymentReference || '';
     updatePurchasePayableReferenceVisibility();
@@ -170,10 +183,8 @@ export function createPurchasesModule(context) {
     purchasePayableForm.reset();
     purchasePayableMethodInput.value = purchase?.paymentMethod || 'efectivo';
     purchasePayableDateInput.value = getLastRecordPayment(purchase, totalAmount)?.date
-      ? new Date(getLastRecordPayment(purchase, totalAmount).date).toISOString().slice(0, 10)
-      : purchase?.fecha
-        ? new Date(purchase.fecha).toISOString().slice(0, 10)
-        : getTodayInputValue();
+      ? getDateInputValue(getLastRecordPayment(purchase, totalAmount).date, getTodayInputValue())
+      : getDateInputValue(purchase?.fecha, getTodayInputValue());
     purchasePayableReferenceInput.value = purchase?.paymentReference || '';
     purchasePayableAmountInput.value = balanceDue > 0 ? balanceDue.toFixed(2) : totalAmount.toFixed(2);
     updatePurchasePayableReferenceVisibility();
@@ -263,7 +274,7 @@ export function createPurchasesModule(context) {
       const matchesEnd = endDate ? purchaseDate <= endDate : true;
       const matchesProduct = productFilter ? (Array.isArray(compra.items) ? compra.items.some(item => String(item.nombre || '').toLowerCase().includes(productFilter)) : String(compra.nombre || '').toLowerCase().includes(productFilter)) : true;
       return matchesDocument && matchesSupplier && matchesMethod && matchesStart && matchesEnd && matchesProduct;
-    });
+    }).sort(comparePurchasesByDateDescending);
   }
 
   function updatePurchaseRegistroDateFilterVisibility() {
@@ -318,7 +329,7 @@ export function createPurchasesModule(context) {
 
   function renderPurchaseHistory() {
     if (!purchaseRecords) return;
-    const purchases = state.purchases;
+    const purchases = state.purchases.slice().sort(comparePurchasesByDateDescending);
     if (!purchases.length) {
       purchaseRecords.innerHTML = '<p class="history-empty">Aun no hay compras registradas.</p>';
       return;
@@ -341,7 +352,7 @@ export function createPurchasesModule(context) {
           </tr>
         </thead>
         <tbody>
-          ${purchases.slice().reverse().flatMap(compra => {
+          ${purchases.flatMap(compra => {
             if (!Array.isArray(compra.items) || !compra.items.length) {
               return [`
                 <tr>
@@ -368,8 +379,8 @@ export function createPurchasesModule(context) {
                   <td>${buildReceiptReferenceMarkup(compra.paymentReference, 'purchase-history-receipt', compra.id)}</td>
                   <td>${escapeHtml(productLabel)}</td>
                   <td>${Number(item.cantidad)}</td>
-                  <td>C$${Number(item.costo).toFixed(2).replace('.', ',')}</td>
-                  <td>C$${total.toFixed(2).replace('.', ',')}</td>
+                  <td>${formatCurrency(item.costo)}</td>
+                  <td>${formatCurrency(total)}</td>
                 </tr>
               `;
             });
@@ -416,7 +427,7 @@ export function createPurchasesModule(context) {
           </tr>
         </thead>
         <tbody>
-          ${filtered.slice().reverse().flatMap(compra => compra.items.map(item => {
+          ${filtered.flatMap(compra => compra.items.map(item => {
             const total = Number(item.costo) * Number(item.cantidad);
             const allowPaymentEditing = canManagePurchasePayment(compra);
             const actionLabel = getPurchasePaymentActionLabel(compra);
@@ -433,8 +444,8 @@ export function createPurchasesModule(context) {
                 <td>${compra.paidAt ? formatDate(compra.paidAt) : '-'}</td>
                 <td>${escapeHtml(productLabel)}</td>
                 <td>${Number(item.cantidad)}</td>
-                <td>C$${Number(item.costo).toFixed(2).replace('.', ',')}</td>
-                <td>C$${total.toFixed(2).replace('.', ',')}</td>
+                <td>${formatCurrency(item.costo)}</td>
+                <td>${formatCurrency(total)}</td>
                 <td>${allowPaymentEditing ? `<button type="button" class="secondary-btn action-icon-btn registro-payment-btn" data-registro-purchase-pay="${escapeHtml(String(compra.id))}" title="${escapeHtml(actionLabel)}">${getActionIcon(actionLabel)}</button>` : '-'}</td>
               </tr>
             `;

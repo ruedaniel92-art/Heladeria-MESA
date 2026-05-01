@@ -3,7 +3,6 @@ export function getDomRefs() {
   const loadingText = document.createElement('p');
   loadingText.className = 'loading';
   loadingText.textContent = 'Cargando productos...';
-  document.querySelector('.panel').appendChild(loadingText);
 
   const tabs = document.querySelectorAll('.module-tab');
   const modulePanels = document.querySelectorAll('.module-panel');
@@ -177,6 +176,7 @@ export function getDomRefs() {
   const paymentNewPanel = document.getElementById('payment-new');
   const paymentRegistroPanel = document.getElementById('payment-registro');
   const paymentPendingPanel = document.getElementById('payment-pending');
+  const paymentPendingSearchInput = document.getElementById('payment-pending-search');
   const openPaymentReimbursementBatchButton = document.getElementById('open-payment-reimbursement-batch');
   const paymentCatalogPanel = document.getElementById('payment-catalog');
   const paymentFilterDescriptionInput = document.getElementById('payment-filter-description');
@@ -192,6 +192,7 @@ export function getDomRefs() {
   const paymentCategorySubmitButton = document.getElementById('payment-category-submit');
   const cancelPaymentCategoryEditButton = document.getElementById('cancel-payment-category-edit');
   const paymentCategoryStatus = document.getElementById('payment-category-status');
+  const paymentCategorySearchInput = document.getElementById('payment-category-search');
   const paymentCategoryList = document.getElementById('payment-category-list');
   const paymentReimbursementModal = document.getElementById('payment-reimbursement-modal');
   const closePaymentReimbursementModalButton = document.getElementById('close-payment-reimbursement-modal');
@@ -203,8 +204,10 @@ export function getDomRefs() {
   const fundTabs = document.querySelectorAll('.fund-tab');
   const fundCashPanel = document.getElementById('fund-cash-panel');
   const fundBankPanel = document.getElementById('fund-bank-panel');
+  const fundTransfersPanel = document.getElementById('fund-transfers-panel');
   const fundExternalPanel = document.getElementById('fund-external-panel');
   const fundOverviewPanel = document.getElementById('fund-overview-panel');
+  const fundSettingsPanel = document.getElementById('fund-settings-panel');
   const fundCashBalance = document.getElementById('fund-cash-balance');
   const fundCashMinimum = document.getElementById('fund-cash-minimum');
   const fundCashAvailable = document.getElementById('fund-cash-available');
@@ -224,6 +227,16 @@ export function getDomRefs() {
   const fundTransferReferenceInput = document.getElementById('fund-transfer-reference');
   const fundTransferNoteInput = document.getElementById('fund-transfer-note');
   const fundTransferStatus = document.getElementById('fund-transfer-status');
+  const fundCashFilterSearchInput = document.getElementById('fund-cash-filter-search');
+  const fundCashFilterDirectionInput = document.getElementById('fund-cash-filter-direction');
+  const fundCashFilterDateStartInput = document.getElementById('fund-cash-filter-date-start');
+  const fundCashFilterDateEndInput = document.getElementById('fund-cash-filter-date-end');
+  const clearFundCashFiltersButton = document.getElementById('clear-fund-cash-filters');
+  const fundBankFilterSearchInput = document.getElementById('fund-bank-filter-search');
+  const fundBankFilterDirectionInput = document.getElementById('fund-bank-filter-direction');
+  const fundBankFilterDateStartInput = document.getElementById('fund-bank-filter-date-start');
+  const fundBankFilterDateEndInput = document.getElementById('fund-bank-filter-date-end');
+  const clearFundBankFiltersButton = document.getElementById('clear-fund-bank-filters');
   const fundCashRecords = document.getElementById('fund-cash-records');
   const fundBankRecords = document.getElementById('fund-bank-records');
   const externalDebtForm = document.getElementById('external-debt-form');
@@ -615,6 +628,7 @@ export function getDomRefs() {
     paymentNewPanel,
     paymentRegistroPanel,
     paymentPendingPanel,
+    paymentPendingSearchInput,
     openPaymentReimbursementBatchButton,
     paymentCatalogPanel,
     paymentFilterDescriptionInput,
@@ -630,6 +644,7 @@ export function getDomRefs() {
     paymentCategorySubmitButton,
     cancelPaymentCategoryEditButton,
     paymentCategoryStatus,
+    paymentCategorySearchInput,
     paymentCategoryList,
     paymentReimbursementModal,
     closePaymentReimbursementModalButton,
@@ -641,8 +656,10 @@ export function getDomRefs() {
     fundTabs,
     fundCashPanel,
     fundBankPanel,
+    fundTransfersPanel,
     fundExternalPanel,
     fundOverviewPanel,
+    fundSettingsPanel,
     fundCashBalance,
     fundCashMinimum,
     fundCashAvailable,
@@ -662,6 +679,16 @@ export function getDomRefs() {
     fundTransferReferenceInput,
     fundTransferNoteInput,
     fundTransferStatus,
+    fundCashFilterSearchInput,
+    fundCashFilterDirectionInput,
+    fundCashFilterDateStartInput,
+    fundCashFilterDateEndInput,
+    clearFundCashFiltersButton,
+    fundBankFilterSearchInput,
+    fundBankFilterDirectionInput,
+    fundBankFilterDateStartInput,
+    fundBankFilterDateEndInput,
+    clearFundBankFiltersButton,
     fundCashRecords,
     fundBankRecords,
     externalDebtForm,

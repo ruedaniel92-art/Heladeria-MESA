@@ -28,6 +28,8 @@ function createDebtHandlers({
       const externalDebts = getExternalDebts();
       const tercero = String(req.body?.tercero || "").trim();
       const concepto = String(req.body?.concepto || "").trim();
+      const categoriaInput = String(req.body?.categoria ?? req.body?.category ?? "").trim();
+      const categoria = categoriaInput || "gasto";
       const tipo = String(req.body?.type || req.body?.tipo || "").trim().toLowerCase() === "por-cobrar" ? "por-cobrar" : "por-pagar";
       const fecha = req.body?.fecha ? new Date(req.body.fecha) : new Date();
       const dueDate = req.body?.dueDate ? new Date(req.body.dueDate) : null;
@@ -54,6 +56,8 @@ function createDebtHandlers({
       const debt = ensureExternalDebtFinancialState({
         id: createDocId(collections.externalDebts),
         type: tipo,
+        categoria,
+        category: categoria,
         tercero,
         concepto,
         fecha: fecha.toISOString(),
@@ -81,6 +85,8 @@ function createDebtHandlers({
       ensureExternalDebtFinancialState(debt);
       const tercero = String(req.body?.tercero || "").trim();
       const concepto = String(req.body?.concepto || "").trim();
+      const categoriaInput = String(req.body?.categoria ?? req.body?.category ?? "").trim();
+      const categoria = categoriaInput || String(debt.categoria || debt.category || "gasto").trim() || "gasto";
       const tipo = String(req.body?.type || req.body?.tipo || "").trim().toLowerCase() === "por-cobrar" ? "por-cobrar" : "por-pagar";
       const fecha = req.body?.fecha ? new Date(req.body.fecha) : new Date(debt.fecha || Date.now());
       const dueDate = req.body?.dueDate ? new Date(req.body.dueDate) : null;
@@ -107,6 +113,8 @@ function createDebtHandlers({
       }
 
       debt.type = tipo;
+      debt.categoria = categoria;
+      debt.category = categoria;
       debt.tercero = tercero;
       debt.concepto = concepto;
       debt.fecha = fecha.toISOString();

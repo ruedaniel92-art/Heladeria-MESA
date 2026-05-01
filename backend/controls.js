@@ -3,6 +3,7 @@ function createControlHandlers({
   applyConsumableCostSnapshot,
   applyFinalCostToSalesForControl,
   asyncHandler,
+  buildInventoryMovement,
   collections,
   commitBatch,
   createDocId,
@@ -127,6 +128,55 @@ function createControlHandlers({
     };
   }
 
+  function applyCloseInventoryMerma(kind, config, control) {
+    const cleanupResult = removeConsumableCloseInventoryMovements(kind, control);
+    const mermaQuantity = Math.max(Number(control.mermaReal || 0), 0);
+    if (mermaQuantity <= 0) {
+      return { cleanupResult, movement: null, affectedProduct: cleanupResult.affectedProduct };
+    }
+
+    const producto = getProductos().find(item => String(item.id) === String(control.materiaPrimaId || ""));
+    if (!producto) {
+      return {
+        cleanupResult,
+        movement: null,
+        affectedProduct: cleanupResult.affectedProduct,
+        error: "La materia prima vinculada al control no existe."
+      };
+    }
+
+    const previousStock = Number(producto.stock || 0);
+    const nextStock = previousStock - mermaQuantity;
+    if (nextStock < -0.0000001) {
+      return {
+        cleanupResult,
+        movement: null,
+        affectedProduct: cleanupResult.affectedProduct,
+        error: `No hay stock suficiente para registrar la merma de ${config.label}.`
+      };
+    }
+
+    producto.stock = Math.max(nextStock, 0);
+    const movement = buildInventoryMovement({
+      producto,
+      tipo: "cierre-control",
+      direccion: "salida",
+      cantidad: mermaQuantity,
+      fecha: control.fechaCierre || new Date().toISOString(),
+      observacion: `Merma por cierre de ${config.label} ${control[config.controlNameField] || ""}`.trim(),
+      referencia: "Cierre de control",
+      saldoAnterior: previousStock,
+      saldoNuevo: producto.stock,
+      extraFields: {
+        controlKind: kind,
+        controlId: control.id
+      }
+    });
+    getInventoryMovements().push(movement);
+
+    return { cleanupResult, movement, affectedProduct: producto };
+  }
+
   function registerListRoute(kind, config) {
     app.get(config.listPath, asyncHandler(async (req, res) => {
       await hydrateStore([config.collection], { forceRefresh: true });
@@ -221,14 +271,20 @@ function createControlHandlers({
       control.costoEstado = "final";
 
       const affectedSales = applyFinalCostToSalesForControl(kind, control);
-      const cleanupResult = removeConsumableCloseInventoryMovements(kind, control);
+      const inventoryResult = applyCloseInventoryMerma(kind, config, control);
+      if (inventoryResult.error) {
+        return res.status(400).json({ error: inventoryResult.error });
+      }
 
       await commitBatch([
         { type: "set", collection: config.collection, id: control.id, data: control },
-        ...(cleanupResult.affectedProduct ? [
-          { type: "set", collection: collections.productos, id: cleanupResult.affectedProduct.id, data: cleanupResult.affectedProduct }
+        ...(inventoryResult.affectedProduct ? [
+          { type: "set", collection: collections.productos, id: inventoryResult.affectedProduct.id, data: inventoryResult.affectedProduct }
         ] : []),
-        ...cleanupResult.removedMovements.map(movement => ({ type: "delete", collection: collections.inventoryMovements, id: movement.id })),
+        ...inventoryResult.cleanupResult.removedMovements.map(movement => ({ type: "delete", collection: collections.inventoryMovements, id: movement.id })),
+        ...(inventoryResult.movement ? [
+          { type: "set", collection: collections.inventoryMovements, id: inventoryResult.movement.id, data: inventoryResult.movement }
+        ] : []),
         ...affectedSales.map(venta => ({ type: "set", collection: collections.ventas, id: venta.id, data: venta }))
       ]);
       res.json({ message: config.closeMessage, [config.responseKey]: control });

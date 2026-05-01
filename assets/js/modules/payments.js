@@ -17,6 +17,7 @@ export function createPaymentsModule(context) {
     externalDebtNoteInput,
     externalDebtPartyInput,
     externalDebtPaymentAccountInput,
+    externalDebtPaymentAmountInput,
     externalDebtPaymentDateInput,
     externalDebtPaymentForm,
     externalDebtPaymentHistory,
@@ -40,15 +41,24 @@ export function createPaymentsModule(context) {
     formatCurrency,
     formatDate,
     fundBankBalance,
+    fundBankFilterDateEndInput,
+    fundBankFilterDateStartInput,
+    fundBankFilterDirectionInput,
+    fundBankFilterSearchInput,
     fundBankRecords,
     fundCashAvailable,
     fundCashBalance,
+    fundCashFilterDateEndInput,
+    fundCashFilterDateStartInput,
+    fundCashFilterDirectionInput,
+    fundCashFilterSearchInput,
     fundCashMinimum,
     fundCashRecords,
     fundCashReserveNote,
     fundOverviewPanel,
     fundCashPanel,
     fundBankPanel,
+    fundTransfersPanel,
     fundExternalPanel,
     fundOpeningBankInput,
     fundOpeningCashInput,
@@ -66,6 +76,7 @@ export function createPaymentsModule(context) {
     getNormalizedRecordPaymentHistory,
     getPurchaseTotalAmount,
     getSaleTotalAmount,
+    getDateInputValue,
     getTodayInputValue,
     openPaymentReimbursementBatchButton,
     paymentBeneficiaryInput,
@@ -75,6 +86,7 @@ export function createPaymentsModule(context) {
     paymentCategoryInput,
     paymentCategoryList,
     paymentCategoryNameInput,
+    paymentCategorySearchInput,
     paymentCategoryStatus,
     paymentCategorySubmitButton,
     paymentDateInput,
@@ -90,6 +102,7 @@ export function createPaymentsModule(context) {
     paymentNewPanel,
     paymentNoteInput,
     paymentPendingPanel,
+    paymentPendingSearchInput,
     paymentPendingRecords,
     paymentRecords,
     paymentReferenceField,
@@ -111,6 +124,8 @@ export function createPaymentsModule(context) {
     setLastRegisteredPaymentForPrint,
     submitExternalDebtPaymentButton,
     syncDynamicTableExport,
+    clearFundBankFiltersButton,
+    clearFundCashFiltersButton,
   } = context;
 
   let editingPaymentCategoryId = null;
@@ -150,6 +165,29 @@ export function createPaymentsModule(context) {
 
   function getPaymentCategoryById(categoryId) {
     return state.paymentCategories.find(item => String(item.id) === String(categoryId)) || null;
+  }
+
+  function resolvePaymentCategoryValue(value) {
+    const rawValue = String(value || '').trim();
+    if (!rawValue) {
+      return '';
+    }
+    const directMatch = state.paymentCategories.find(category => String(category.id) === rawValue);
+    if (directMatch) {
+      return String(directMatch.id);
+    }
+    const normalizedValue = rawValue.toLowerCase();
+    const nameMatch = state.paymentCategories.find(category => String(category.nombre || '').trim().toLowerCase() === normalizedValue);
+    if (nameMatch) {
+      return String(nameMatch.id);
+    }
+    if (normalizedValue === 'gasto') {
+      const gastoMatch = state.paymentCategories.find(category => String(category.nombre || '').trim().toLowerCase() === 'gasto');
+      if (gastoMatch) {
+        return String(gastoMatch.id);
+      }
+    }
+    return '';
   }
 
   function getPaymentCategoryName(payment) {
@@ -312,6 +350,9 @@ export function createPaymentsModule(context) {
 
     state.externalDebts.forEach(debt => {
       const debtType = String(debt.type || '').trim().toLowerCase() === 'por-cobrar' ? 'por-cobrar' : 'por-pagar';
+      const debtCategory = String(debt.categoria || debt.category || 'gasto').trim();
+      const debtCategoryRecord = state.paymentCategories.find(category => String(category.id) === debtCategory);
+      const debtCategoryName = debtCategoryRecord?.nombre || (debtCategory === 'gasto' ? 'Gasto' : debtCategory || 'Sin clasificacion');
       getNormalizedRecordPaymentHistory(debt, getExternalDebtOriginalAmount(debt)).forEach((payment, index) => {
         const account = getFundAccountFromPaymentMethod(payment.paymentMethod || payment.account);
         if (!account) {
@@ -326,6 +367,8 @@ export function createPaymentsModule(context) {
           module: 'deudas-externas',
           title: debt.concepto || 'Deuda externa',
           detail: debt.tercero ? `${debtType === 'por-cobrar' ? 'Cobro a' : 'Pago a'} ${debt.tercero}` : 'Movimiento por deuda externa',
+          category: debtCategory,
+          categoryName: debtCategoryName,
           reference: payment.paymentReference || null,
           paymentMethod: payment.paymentMethod || payment.account || null
         });
@@ -415,13 +458,72 @@ export function createPaymentsModule(context) {
     return String(account || '').trim().toLowerCase() === 'efectivo' ? 'Efectivo' : 'Bancos';
   }
 
+  function getFundFilterRefs(account) {
+    return String(account || '') === 'banco'
+      ? {
+        searchInput: fundBankFilterSearchInput,
+        directionInput: fundBankFilterDirectionInput,
+        dateStartInput: fundBankFilterDateStartInput,
+        dateEndInput: fundBankFilterDateEndInput
+      }
+      : {
+        searchInput: fundCashFilterSearchInput,
+        directionInput: fundCashFilterDirectionInput,
+        dateStartInput: fundCashFilterDateStartInput,
+        dateEndInput: fundCashFilterDateEndInput
+      };
+  }
+
+  function getFundAccountFilter(account) {
+    const refs = getFundFilterRefs(account);
+    return {
+      search: String(refs.searchInput?.value || '').trim().toLowerCase(),
+      direction: String(refs.directionInput?.value || 'all'),
+      dateStart: refs.dateStartInput?.value || '',
+      dateEnd: refs.dateEndInput?.value || ''
+    };
+  }
+
+  function getFundMovementDateValue(movement) {
+    return getDateInputValue(movement?.date, '');
+  }
+
+  function fundMovementMatchesFilter(movement, filter) {
+    const matchesDirection = filter.direction === 'all' || String(movement.direction || '') === filter.direction;
+    const movementDate = getFundMovementDateValue(movement);
+    const matchesDateStart = !filter.dateStart || (movementDate && movementDate >= filter.dateStart);
+    const matchesDateEnd = !filter.dateEnd || (movementDate && movementDate <= filter.dateEnd);
+    const searchableText = [
+      movement.title,
+      movement.detail,
+      movement.reference,
+      getFundMovementModuleLabel(movement.module),
+      getFundMovementMethodLabel(movement.paymentMethod)
+    ].filter(Boolean).join(' ').toLowerCase();
+    const matchesSearch = !filter.search || searchableText.includes(filter.search);
+    return matchesDirection && matchesDateStart && matchesDateEnd && matchesSearch;
+  }
+
+  function resetFundAccountFilters(account) {
+    const refs = getFundFilterRefs(account);
+    if (refs.searchInput) refs.searchInput.value = '';
+    if (refs.directionInput) refs.directionInput.value = 'all';
+    if (refs.dateStartInput) refs.dateStartInput.value = '';
+    if (refs.dateEndInput) refs.dateEndInput.value = '';
+    renderFundsModule();
+  }
+
   function renderFundAccountTable(container, account, movements) {
     if (!container) {
       return;
     }
-    const accountMovements = movements.filter(movement => String(movement.account || '') === String(account)).slice().reverse();
+    const filter = getFundAccountFilter(account);
+    const allAccountMovements = movements.filter(movement => String(movement.account || '') === String(account));
+    const accountMovements = allAccountMovements.filter(movement => fundMovementMatchesFilter(movement, filter)).slice().reverse();
     if (!accountMovements.length) {
-      container.innerHTML = `<p class="history-empty">Aun no hay movimientos en ${escapeHtml(getFundAccountLabel(account).toLowerCase())}.</p>`;
+      container.innerHTML = allAccountMovements.length
+        ? `<p class="history-empty">No hay movimientos en ${escapeHtml(getFundAccountLabel(account).toLowerCase())} con los filtros actuales.</p>`
+        : `<p class="history-empty">Aun no hay movimientos en ${escapeHtml(getFundAccountLabel(account).toLowerCase())}.</p>`;
       return;
     }
 
@@ -524,7 +626,7 @@ export function createPaymentsModule(context) {
       return;
     }
     editingPaymentId = String(payment.id);
-    paymentDateInput.value = payment.fecha ? new Date(payment.fecha).toISOString().slice(0, 10) : getTodayInputValue();
+    paymentDateInput.value = getDateInputValue(payment.fecha, getTodayInputValue());
     paymentCategoryInput.value = String(payment.categoriaId || '');
     paymentMethodInput.value = String(payment.paymentMethod || 'efectivo');
     paymentAmountInput.value = Number(payment.monto || 0).toFixed(2);
@@ -570,12 +672,13 @@ export function createPaymentsModule(context) {
     fundOverviewPanel.classList.add('field-hidden');
     fundCashPanel.classList.remove('active');
     fundBankPanel.classList.remove('active');
+    fundTransfersPanel.classList.remove('active');
     fundExternalPanel.classList.add('active');
     editingExternalDebtId = String(debt.id);
     externalDebtTypeInput.value = debt.type || 'por-pagar';
-    externalDebtCategoryInput.value = debt.categoria || debt.category || 'gasto';
-    externalDebtDateInput.value = debt.fecha ? new Date(debt.fecha).toISOString().slice(0, 10) : getTodayInputValue();
-    externalDebtDueDateInput.value = debt.dueDate ? new Date(debt.dueDate).toISOString().slice(0, 10) : '';
+    externalDebtCategoryInput.value = resolvePaymentCategoryValue(debt.categoria || debt.category || 'gasto');
+    externalDebtDateInput.value = getDateInputValue(debt.fecha, getTodayInputValue());
+    externalDebtDueDateInput.value = getDateInputValue(debt.dueDate, '');
     externalDebtAmountInput.value = Number(getExternalDebtOriginalAmount(debt) || 0).toFixed(2);
     externalDebtPartyInput.value = debt.tercero || '';
     externalDebtConceptInput.value = debt.concepto || '';
@@ -599,7 +702,7 @@ export function createPaymentsModule(context) {
     }
     editingExternalDebtPaymentEntryId = paymentEntry.id;
     externalDebtPaymentAccountInput.value = paymentEntry.account || getFundAccountFromPaymentMethod(paymentEntry.paymentMethod) || 'efectivo';
-    externalDebtPaymentDateInput.value = paymentEntry.date ? new Date(paymentEntry.date).toISOString().slice(0, 10) : getTodayInputValue();
+    externalDebtPaymentDateInput.value = getDateInputValue(paymentEntry.date, getTodayInputValue());
     externalDebtPaymentAmountInput.value = Number(paymentEntry.amount || 0).toFixed(2);
     externalDebtPaymentReferenceInput.value = paymentEntry.paymentReference || '';
     externalDebtPaymentNoteInput.value = paymentEntry.note || '';
@@ -812,8 +915,9 @@ export function createPaymentsModule(context) {
       return;
     }
     const method = String(paymentMethodInput.value || '').trim().toLowerCase();
-    const requiresReference = method === 'transferencia';
+    const requiresReference = ['transferencia', 'tarjeta', 'tarjeta-credito'].includes(method);
     paymentReferenceField.classList.toggle('field-hidden', !requiresReference);
+    paymentReferenceInput.required = requiresReference;
     if (!requiresReference) {
       paymentReferenceInput.value = '';
     }
@@ -840,6 +944,14 @@ export function createPaymentsModule(context) {
       const currentFilter = paymentFilterCategoryInput.value;
       paymentFilterCategoryInput.innerHTML = `<option value="all">Todas</option>${categoryOptions.map(category => `<option value="${escapeHtml(String(category.id))}">${escapeHtml(category.nombre)}</option>`).join('')}`;
       paymentFilterCategoryInput.value = categoryOptions.some(category => String(category.id) === String(currentFilter)) ? currentFilter : 'all';
+    }
+
+    if (externalDebtCategoryInput) {
+      const currentValue = externalDebtCategoryInput.value;
+      externalDebtCategoryInput.innerHTML = categoryOptions.length
+        ? `<option value="">Selecciona una clasificacion</option>${categoryOptions.map(category => `<option value="${escapeHtml(String(category.id))}">${escapeHtml(category.nombre)}</option>`).join('')}`
+        : '<option value="">Crea primero una clasificacion en Pagos</option>';
+      externalDebtCategoryInput.value = resolvePaymentCategoryValue(currentValue);
     }
   }
 
@@ -956,6 +1068,21 @@ export function createPaymentsModule(context) {
       return;
     }
     const pendingPayments = state.payments.filter(isPendingCardPayment);
+    const searchTerm = String(paymentPendingSearchInput?.value || '').trim().toLowerCase();
+    const visiblePendingPayments = pendingPayments.filter(payment => {
+      if (!searchTerm) {
+        return true;
+      }
+      const searchableText = [
+        payment.descripcion,
+        payment.beneficiario,
+        getPaymentCategoryName(payment),
+        payment.referencia,
+      ]
+        .map(value => String(value || '').trim().toLowerCase())
+        .join(' ');
+      return searchableText.includes(searchTerm);
+    });
     const pendingIdSet = new Set(pendingPayments.map(payment => String(payment.id)));
     selectedPendingPaymentIds = selectedPendingPaymentIds.filter(id => pendingIdSet.has(String(id)));
     if (!pendingPayments.length) {
@@ -976,13 +1103,22 @@ export function createPaymentsModule(context) {
         : 'Registrar transferencia seleccionada';
     }
 
+    if (!visiblePendingPayments.length) {
+      paymentPendingRecords.innerHTML = `<p class="history-empty">No se encontraron pagos pendientes para "${escapeHtml(searchTerm)}".</p>`;
+      return;
+    }
+
+    const visibleIds = visiblePendingPayments.map(payment => String(payment.id));
+    const visibleIdSet = new Set(visibleIds);
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedPendingPaymentIds.includes(id));
+
     paymentPendingRecords.innerHTML = `
       <h4>Pendientes de reembolso</h4>
       <table class="history-table">
         <thead>
           <tr>
             <th>
-              <input type="checkbox" id="payment-pending-select-all" ${selectedCount === pendingPayments.length ? 'checked' : ''} aria-label="Seleccionar todos los pagos pendientes" />
+              <input type="checkbox" id="payment-pending-select-all" ${allVisibleSelected ? 'checked' : ''} aria-label="Seleccionar todos los pagos pendientes" />
             </th>
             <th>Fecha</th>
             <th>Descripcion</th>
@@ -993,7 +1129,7 @@ export function createPaymentsModule(context) {
           </tr>
         </thead>
         <tbody>
-          ${pendingPayments.map(payment => `
+          ${visiblePendingPayments.map(payment => `
             <tr>
               <td><input type="checkbox" data-payment-pending-select="${escapeHtml(String(payment.id))}" ${selectedPendingPaymentIds.includes(String(payment.id)) ? 'checked' : ''} aria-label="Seleccionar pago ${escapeHtml(payment.descripcion || '')}" /></td>
               <td>${formatDate(payment.fecha)}</td>
@@ -1017,7 +1153,13 @@ export function createPaymentsModule(context) {
     const selectAllCheckbox = paymentPendingRecords.querySelector('#payment-pending-select-all');
     if (selectAllCheckbox) {
       selectAllCheckbox.addEventListener('change', event => {
-        selectedPendingPaymentIds = event.target.checked ? pendingPayments.map(payment => String(payment.id)) : [];
+        if (event.target.checked) {
+          const selectedSet = new Set(selectedPendingPaymentIds);
+          visibleIds.forEach(id => selectedSet.add(id));
+          selectedPendingPaymentIds = Array.from(selectedSet);
+        } else {
+          selectedPendingPaymentIds = selectedPendingPaymentIds.filter(id => !visibleIdSet.has(id));
+        }
         renderPendingPayments();
       });
     }
@@ -1057,9 +1199,20 @@ export function createPaymentsModule(context) {
     if (!paymentCategoryList) {
       return;
     }
-    const categories = state.paymentCategories.slice().sort((left, right) => String(left.nombre || '').localeCompare(String(right.nombre || ''), 'es', { sensitivity: 'base' }));
+    const searchTerm = String(paymentCategorySearchInput?.value || '').trim().toLowerCase();
+    const categories = state.paymentCategories
+      .filter(category => {
+        if (!searchTerm) {
+          return true;
+        }
+        const searchableText = `${String(category.nombre || '')} ${String(category.descripcion || '')}`.toLowerCase();
+        return searchableText.includes(searchTerm);
+      })
+      .sort((left, right) => String(left.nombre || '').localeCompare(String(right.nombre || ''), 'es', { sensitivity: 'base' }));
     if (!categories.length) {
-      paymentCategoryList.innerHTML = '<p class="history-empty">Aun no hay clasificaciones para pagos.</p>';
+      paymentCategoryList.innerHTML = searchTerm
+        ? `<p class="history-empty">No se encontraron clasificaciones para "${escapeHtml(searchTerm)}".</p>`
+        : '<p class="history-empty">Aun no hay clasificaciones para pagos.</p>';
       return;
     }
 
@@ -1169,6 +1322,33 @@ export function createPaymentsModule(context) {
 
   if (closePaymentReimbursementModalButton) {
     closePaymentReimbursementModalButton.addEventListener('click', closePaymentReimbursementModalPanel);
+  }
+
+  [
+    fundCashFilterSearchInput,
+    fundCashFilterDirectionInput,
+    fundCashFilterDateStartInput,
+    fundCashFilterDateEndInput,
+    fundBankFilterSearchInput,
+    fundBankFilterDirectionInput,
+    fundBankFilterDateStartInput,
+    fundBankFilterDateEndInput
+  ].forEach(input => {
+    if (!input) {
+      return;
+    }
+    input.addEventListener(input.tagName === 'SELECT' ? 'change' : 'input', renderFundsModule);
+    if (input.type === 'date') {
+      input.addEventListener('change', renderFundsModule);
+    }
+  });
+
+  if (clearFundCashFiltersButton) {
+    clearFundCashFiltersButton.addEventListener('click', () => resetFundAccountFilters('efectivo'));
+  }
+
+  if (clearFundBankFiltersButton) {
+    clearFundBankFiltersButton.addEventListener('click', () => resetFundAccountFilters('banco'));
   }
 
   return {

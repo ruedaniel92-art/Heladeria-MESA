@@ -33,7 +33,8 @@ function createProductHandlers({
       if (normalizedType === "materia prima") {
         normalizedMode = "materia-prima";
       }
-      const shouldUseRecipe = normalizedMode === "receta" || normalizedMode === "mixto";
+      const hasRecipeIngredients = Array.isArray(ingredientes) && ingredientes.length > 0;
+      const shouldUseRecipe = normalizedMode === "receta" || normalizedMode === "mixto" || (normalizedMode === "personalizado" && hasRecipeIngredients);
       const shouldControlFlavors = normalizedMode === "helado-sabores" || normalizedMode === "mixto" || Boolean(controlSabores);
       const computedYield = normalizedType === "materia prima" ? normalizeNonNegativeNumber(rendimientoPorCompra) : 0;
       const computedScoops = shouldControlFlavors ? Number(pelotasPorUnidad) : 0;
@@ -74,7 +75,7 @@ function createProductHandlers({
       }
 
       if (shouldUseRecipe) {
-        if (!Array.isArray(ingredientes) || ingredientes.length === 0) {
+        if ((normalizedMode === "receta" || normalizedMode === "mixto") && !hasRecipeIngredients) {
           return res.status(400).json({ error: "Producto terminado necesita ingredientes." });
         }
         const invalidIngredient = ingredientes.find(ing => !ing || !ing.nombre || typeof ing.nombre !== "string" || isNaN(Number(ing.cantidad)) || Number(ing.cantidad) <= 0);

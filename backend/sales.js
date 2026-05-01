@@ -14,6 +14,7 @@ function createSalesHandlers({
   ensureSaleFinancialState,
   getAccountFromPaymentMethod,
   getActiveBucketForFlavor,
+  getFlavorAvailableStock,
   getActiveSauceControlForSauce,
   getActiveToppingControlForTopping,
   getBaldesControl,
@@ -117,7 +118,7 @@ function createSalesHandlers({
 
         const inventoryMode = getProductInventoryMode(producto);
         const requiresFlavorControl = inventoryMode === "helado-sabores" || inventoryMode === "mixto";
-        const requiresRecipeControl = inventoryMode === "receta" || inventoryMode === "mixto";
+        const requiresRecipeControl = inventoryMode === "receta" || inventoryMode === "mixto" || (inventoryMode === "personalizado" && Array.isArray(producto.ingredientes) && producto.ingredientes.length > 0);
         const requiresFreeComponents = inventoryMode === "personalizado";
         const pelotasPorUnidad = requiresFlavorControl ? Number(producto.pelotasPorUnidad || 0) : 0;
         const totalPelotasRequeridas = requiresFlavorControl ? itemCantidad * pelotasPorUnidad : 0;
@@ -173,14 +174,70 @@ function createSalesHandlers({
         const normalizedComponentes = itemComponentes.map(component => {
           const componentId = component?.id !== undefined && component?.id !== null ? String(component.id) : "";
           const componentName = String(component?.nombre || component?.name || "").trim();
-          const componentProduct = componentId
+          const sourceCategory = String(component?.sourceCategory || "").trim().toLowerCase();
+          const sourceId = component?.sourceId !== undefined && component?.sourceId !== null ? String(component.sourceId) : "";
+          let componentProduct = componentId
             ? productos.find(entry => String(entry.id) === componentId)
             : productos.find(entry => String(entry.nombre || "").trim().toLowerCase() === componentName.toLowerCase());
+          let normalizedSourceCategory = sourceCategory === "sabor" || sourceCategory === "flavor"
+            ? "sabor"
+            : sourceCategory === "topping"
+              ? "topping"
+              : sourceCategory === "salsa" || sourceCategory === "sauce"
+                ? "salsa"
+                : "producto";
+          let normalizedSourceId = sourceId;
+          let baldeControlId = null;
+          let toppingControlId = null;
+          let sauceControlId = null;
+
+          if (normalizedSourceCategory === "sabor") {
+            const registeredFlavor = sourceId
+              ? sabores.find(entry => String(entry.id) === sourceId)
+              : sabores.find(entry => entry.nombre.toLowerCase() === componentName.toLowerCase());
+            const activeBucket = registeredFlavor ? getActiveBucketForFlavor(registeredFlavor.id) : null;
+            componentProduct = registeredFlavor
+              ? productos.find(entry => String(entry.id) === String(registeredFlavor.materiaPrimaId))
+              : null;
+            normalizedSourceId = registeredFlavor ? registeredFlavor.id : "";
+            baldeControlId = activeBucket ? activeBucket.id : null;
+          }
+
+          if (normalizedSourceCategory === "topping") {
+            const registeredTopping = sourceId
+              ? toppings.find(entry => String(entry.id) === sourceId)
+              : toppings.find(entry => entry.nombre.toLowerCase() === componentName.toLowerCase());
+            const activeToppingControl = registeredTopping ? getActiveToppingControlForTopping(registeredTopping.id) : null;
+            componentProduct = registeredTopping
+              ? productos.find(entry => String(entry.id) === String(registeredTopping.materiaPrimaId))
+              : null;
+            normalizedSourceId = registeredTopping ? registeredTopping.id : "";
+            toppingControlId = activeToppingControl ? activeToppingControl.id : null;
+          }
+
+          if (normalizedSourceCategory === "salsa") {
+            const registeredSauce = sourceId
+              ? salsas.find(entry => String(entry.id) === sourceId)
+              : salsas.find(entry => entry.nombre.toLowerCase() === componentName.toLowerCase());
+            const activeSauceControl = registeredSauce ? getActiveSauceControlForSauce(registeredSauce.id) : null;
+            componentProduct = registeredSauce
+              ? productos.find(entry => String(entry.id) === String(registeredSauce.materiaPrimaId))
+              : null;
+            normalizedSourceId = registeredSauce ? registeredSauce.id : "";
+            sauceControlId = activeSauceControl ? activeSauceControl.id : null;
+          }
+
           const componentMode = getProductInventoryMode(componentProduct);
           const cantidad = Number(component?.cantidad);
           const precio = component?.precio === undefined || component?.precio === null || component?.precio === "" ? 0 : Number(component.precio);
 
           if (!componentProduct || !["materia-prima", "directo"].includes(componentMode) || Number.isNaN(cantidad) || cantidad <= 0 || Number.isNaN(precio) || precio < 0) {
+            return null;
+          }
+
+          if ((normalizedSourceCategory === "sabor" && !baldeControlId)
+            || (normalizedSourceCategory === "topping" && !toppingControlId)
+            || (normalizedSourceCategory === "salsa" && !sauceControlId)) {
             return null;
           }
 
@@ -191,12 +248,20 @@ function createSalesHandlers({
 
           return {
             id: componentProduct.id,
-            nombre: componentProduct.nombre,
+            nombre: componentName || componentProduct.nombre,
             tipo: componentMode,
             cantidad,
             cantidadTotal,
             precio,
-            stockDisponible: Number(componentProduct.stock || 0)
+            stockDisponible: Number(componentProduct.stock || 0),
+            sourceCategory: normalizedSourceCategory,
+            sourceId: normalizedSourceId || componentProduct.id,
+            sourceNombre: componentName || componentProduct.nombre,
+            materiaPrimaId: componentProduct.id,
+            materiaPrimaNombre: componentProduct.nombre,
+            baldeControlId,
+            toppingControlId,
+            sauceControlId
           };
         });
 
@@ -350,29 +415,102 @@ function createSalesHandlers({
           const materiaPrimaExtra = materiaPrimaExtraId
             ? productos.find(entry => String(entry.id) === materiaPrimaExtraId)
             : null;
-          if (materiaPrimaExtra) {
-            const materiaPrimaMode = getProductInventoryMode(materiaPrimaExtra);
-            if (materiaPrimaMode !== "materia-prima" || Number(materiaPrimaExtra.stock || 0) < cantidad) {
-              return null;
-            }
+          if (!materiaPrimaExtra) {
+            return null;
           }
 
+          const materiaPrimaMode = getProductInventoryMode(materiaPrimaExtra);
+          if (materiaPrimaMode !== "materia-prima" || Number(materiaPrimaExtra.stock || 0) < cantidad) {
+            return null;
+          }
+
+          const linkedFlavors = sabores.filter(flavor => String(flavor.materiaPrimaId || "") === String(materiaPrimaExtra.id));
+          const linkedToppings = toppings.filter(topping => String(topping.materiaPrimaId || "") === String(materiaPrimaExtra.id));
+          const linkedSauces = salsas.filter(sauce => String(sauce.materiaPrimaId || "") === String(materiaPrimaExtra.id));
+          const selectedFlavorId = adicional?.flavorId !== undefined && adicional?.flavorId !== null ? String(adicional.flavorId).trim() : "";
+          const selectedToppingId = adicional?.toppingId !== undefined && adicional?.toppingId !== null ? String(adicional.toppingId).trim() : "";
+          const selectedSauceId = adicional?.sauceId !== undefined && adicional?.sauceId !== null ? String(adicional.sauceId).trim() : "";
+          const requiresLink = linkedFlavors.length || linkedToppings.length || linkedSauces.length;
+          const selectedLinksCount = [selectedFlavorId, selectedToppingId, selectedSauceId].filter(Boolean).length;
+
+          if (requiresLink && selectedLinksCount !== 1) {
+            return null;
+          }
+
+          const selectedFlavor = selectedFlavorId
+            ? linkedFlavors.find(flavor => String(flavor.id) === selectedFlavorId) || null
+            : null;
+          const selectedTopping = selectedToppingId
+            ? linkedToppings.find(topping => String(topping.id) === selectedToppingId) || null
+            : null;
+          const selectedSauce = selectedSauceId
+            ? linkedSauces.find(sauce => String(sauce.id) === selectedSauceId) || null
+            : null;
+
+          if ((selectedFlavorId && !selectedFlavor)
+            || (selectedToppingId && !selectedTopping)
+            || (selectedSauceId && !selectedSauce)) {
+            return null;
+          }
+
+          const activeBucket = selectedFlavor ? getActiveBucketForFlavor(selectedFlavor.id) : null;
+          if (selectedFlavor && (!activeBucket || getFlavorAvailableStock(selectedFlavor.id) < cantidad)) {
+            return null;
+          }
+
+          const activeToppingControl = selectedTopping ? getActiveToppingControlForTopping(selectedTopping.id) : null;
+          if (selectedTopping && (!activeToppingControl || getToppingAvailableStock(selectedTopping.id) < cantidad)) {
+            return null;
+          }
+
+          const activeSauceControl = selectedSauce ? getActiveSauceControlForSauce(selectedSauce.id) : null;
+          if (selectedSauce && (!activeSauceControl || getSauceAvailableStock(selectedSauce.id) < cantidad)) {
+            return null;
+          }
+
+          if (activeToppingControl) {
+            ensureConsumableControlSnapshot("topping", activeToppingControl);
+          }
+          if (activeSauceControl) {
+            ensureConsumableControlSnapshot("sauce", activeSauceControl);
+          }
+
+          const linkedType = selectedFlavor ? "flavor" : selectedTopping ? "topping" : selectedSauce ? "sauce" : null;
+          const linkedId = selectedFlavor ? selectedFlavor.id : selectedTopping ? selectedTopping.id : selectedSauce ? selectedSauce.id : null;
+          const linkedName = selectedFlavor ? selectedFlavor.nombre : selectedTopping ? selectedTopping.nombre : selectedSauce ? selectedSauce.nombre : null;
+          const toppingCosts = activeToppingControl ? getControlCostValues(activeToppingControl, false) : null;
+          const sauceCosts = activeSauceControl ? getControlCostValues(activeSauceControl, false) : null;
+
           return {
-            id: null,
+            id: selectedTopping ? selectedTopping.id : selectedSauce ? selectedSauce.id : null,
             tipo,
             nombre,
             cantidad,
             precio,
-            materiaPrimaId: materiaPrimaExtra ? materiaPrimaExtra.id : null,
-            materiaPrimaNombre: materiaPrimaExtra ? materiaPrimaExtra.nombre : null,
-            toppingControlId: null,
-            sauceControlId: null,
-            addonCategory: materiaPrimaExtra ? "materia-prima" : null,
-            costoUnitarioProvisional: null,
-            costoTotalProvisional: null,
+            materiaPrimaId: materiaPrimaExtra.id,
+            materiaPrimaNombre: materiaPrimaExtra.nombre,
+            flavorId: selectedFlavor ? selectedFlavor.id : null,
+            flavorName: selectedFlavor ? selectedFlavor.nombre : null,
+            toppingId: selectedTopping ? selectedTopping.id : null,
+            toppingName: selectedTopping ? selectedTopping.nombre : null,
+            sauceId: selectedSauce ? selectedSauce.id : null,
+            sauceName: selectedSauce ? selectedSauce.nombre : null,
+            linkedType,
+            linkedId,
+            linkedName,
+            baldeControlId: activeBucket ? activeBucket.id : null,
+            toppingControlId: activeToppingControl ? activeToppingControl.id : null,
+            sauceControlId: activeSauceControl ? activeSauceControl.id : null,
+            addonCategory: selectedFlavor ? "flavor" : selectedTopping ? "topping" : selectedSauce ? "sauce" : "materia-prima",
+            costoUnitarioProvisional: toppingCosts ? toppingCosts.unitCost : sauceCosts ? sauceCosts.unitCost : null,
+            costoTotalProvisional: toppingCosts
+              ? toppingCosts.totalForQuantity(cantidad)
+              : sauceCosts
+                ? sauceCosts.totalForQuantity(cantidad)
+                : null,
             costoUnitarioFinal: null,
             costoTotalFinal: null,
-            costoEstado: "pendiente"
+            costoEstado: toppingCosts || sauceCosts ? "provisional" : "pendiente"
           };
         });
 
@@ -446,7 +584,7 @@ function createSalesHandlers({
           producto.stock -= item.cantidad;
         }
 
-        if (inventoryMode === "receta" || inventoryMode === "mixto") {
+        if (inventoryMode === "receta" || inventoryMode === "mixto" || (inventoryMode === "personalizado" && Array.isArray(item.ingredientes) && item.ingredientes.length > 0)) {
           (item.ingredientes || []).forEach(ingredient => {
             const materiaPrima = productos.find(entry => String(entry.id) === String(ingredient.id));
             if (materiaPrima) {
@@ -460,6 +598,45 @@ function createSalesHandlers({
             const componentProduct = productos.find(entry => String(entry.id) === String(component.id));
             if (componentProduct) {
               componentProduct.stock -= Number(component.cantidadTotal || 0);
+            }
+            const activeBucket = component.baldeControlId
+              ? baldesControl.find(bucket => String(bucket.id) === String(component.baldeControlId) && bucket.estado === "abierto")
+              : null;
+            if (activeBucket) {
+              activeBucket.porcionesVendidas += Number(component.cantidadTotal || 0);
+            }
+            const activeToppingControl = component.toppingControlId
+              ? toppingControls.find(control => String(control.id) === String(component.toppingControlId) && control.estado === "abierto")
+              : null;
+            if (activeToppingControl) {
+              activeToppingControl.porcionesVendidas += Number(component.cantidadTotal || 0);
+            }
+            const activeSauceControl = component.sauceControlId
+              ? sauceControls.find(control => String(control.id) === String(component.sauceControlId) && control.estado === "abierto")
+              : null;
+            if (activeSauceControl) {
+              activeSauceControl.porcionesVendidas += Number(component.cantidadTotal || 0);
+            }
+          });
+
+          [...new Set((item.componentes || []).map(component => String(component.baldeControlId || "")).filter(Boolean))].forEach(controlId => {
+            const activeBucket = baldesControl.find(bucket => String(bucket.id) === controlId && bucket.estado === "abierto");
+            if (activeBucket) {
+              activeBucket.ventasAsociadas += 1;
+            }
+          });
+
+          [...new Set((item.componentes || []).map(component => String(component.toppingControlId || "")).filter(Boolean))].forEach(controlId => {
+            const activeToppingControl = toppingControls.find(control => String(control.id) === controlId && control.estado === "abierto");
+            if (activeToppingControl) {
+              activeToppingControl.ventasAsociadas += 1;
+            }
+          });
+
+          [...new Set((item.componentes || []).map(component => String(component.sauceControlId || "")).filter(Boolean))].forEach(controlId => {
+            const activeSauceControl = sauceControls.find(control => String(control.id) === controlId && control.estado === "abierto");
+            if (activeSauceControl) {
+              activeSauceControl.ventasAsociadas += 1;
             }
           });
         }
@@ -507,6 +684,21 @@ function createSalesHandlers({
             : (adicional.id ? getActiveSauceControlForSauce(adicional.id) : null);
           if (activeSauceControl) {
             activeSauceControl.porcionesVendidas += Number(adicional.cantidad || 0);
+          }
+
+          const activeBucket = adicional.baldeControlId
+            ? baldesControl.find(bucket => String(bucket.id) === String(adicional.baldeControlId) && bucket.estado === "abierto")
+            : (adicional.flavorId ? getActiveBucketForFlavor(adicional.flavorId) : null);
+          if (activeBucket) {
+            activeBucket.porcionesVendidas += Number(adicional.cantidad || 0);
+          }
+        });
+
+        const bucketControlIds = [...new Set((item.adicionales || []).map(adicional => String(adicional.baldeControlId || "")).filter(Boolean))];
+        bucketControlIds.forEach(controlId => {
+          const activeBucket = baldesControl.find(bucket => String(bucket.id) === controlId && bucket.estado === "abierto");
+          if (activeBucket) {
+            activeBucket.ventasAsociadas += 1;
           }
         });
 

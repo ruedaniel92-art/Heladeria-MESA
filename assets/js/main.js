@@ -40,12 +40,44 @@
     import { createPurchasesModule } from './modules/purchases.js';
     import { createSalesModule } from './modules/sales.js';
 
+    function padDatePart(value) {
+      return String(value).padStart(2, '0');
+    }
+
+    function formatDateInputValue(date = new Date()) {
+      return [
+        date.getFullYear(),
+        padDatePart(date.getMonth() + 1),
+        padDatePart(date.getDate())
+      ].join('-');
+    }
+
+    function getDateInputValue(value, fallbackValue = '') {
+      if (!value) {
+        return fallbackValue;
+      }
+      const normalizedValue = String(value);
+      const dateOnlyMatch = normalizedValue.match(/^(\d{4}-\d{2}-\d{2})(?:T00:00:00(?:\.000)?Z)?$/);
+      if (dateOnlyMatch) {
+        return dateOnlyMatch[1];
+      }
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? fallbackValue : formatDateInputValue(date);
+    }
+
     function getTodayInputValue() {
-      return new Date().toISOString().slice(0, 10);
+      return formatDateInputValue(new Date());
     }
 
     function getCurrentMonthInputValue() {
-      return new Date().toISOString().slice(0, 7);
+      const today = new Date();
+      return `${today.getFullYear()}-${padDatePart(today.getMonth() + 1)}`;
+    }
+
+    function applyDefaultSaleCustomerValue() {
+      if (saleCustomerInput && !saleCustomerInput.value.trim()) {
+        saleCustomerInput.value = 'Cliente de contado';
+      }
     }
 
     function applyDefaultDateValues() {
@@ -64,6 +96,7 @@
       if (dashboardIncomeStatementMonthInput) dashboardIncomeStatementMonthInput.value = getCurrentMonthInputValue();
       if (dashboardCashflowDateStartInput) dashboardCashflowDateStartInput.value = today;
       if (dashboardCashflowDateEndInput) dashboardCashflowDateEndInput.value = today;
+      applyDefaultSaleCustomerValue();
     }
 
     async function readApiResponse(response) {
@@ -266,6 +299,7 @@
       paymentNewPanel,
       paymentRegistroPanel,
       paymentPendingPanel,
+      paymentPendingSearchInput,
       openPaymentReimbursementBatchButton,
       paymentCatalogPanel,
       paymentFilterDescriptionInput,
@@ -281,6 +315,7 @@
       paymentCategorySubmitButton,
       cancelPaymentCategoryEditButton,
       paymentCategoryStatus,
+      paymentCategorySearchInput,
       paymentCategoryList,
       paymentReimbursementModal,
       closePaymentReimbursementModalButton,
@@ -292,8 +327,10 @@
       fundTabs,
       fundCashPanel,
       fundBankPanel,
+      fundTransfersPanel,
       fundExternalPanel,
       fundOverviewPanel,
+      fundSettingsPanel,
       fundCashBalance,
       fundCashMinimum,
       fundCashAvailable,
@@ -313,6 +350,16 @@
       fundTransferReferenceInput,
       fundTransferNoteInput,
       fundTransferStatus,
+      fundCashFilterSearchInput,
+      fundCashFilterDirectionInput,
+      fundCashFilterDateStartInput,
+      fundCashFilterDateEndInput,
+      clearFundCashFiltersButton,
+      fundBankFilterSearchInput,
+      fundBankFilterDirectionInput,
+      fundBankFilterDateStartInput,
+      fundBankFilterDateEndInput,
+      clearFundBankFiltersButton,
       fundCashRecords,
       fundBankRecords,
       externalDebtForm,
@@ -529,6 +576,24 @@
       securityUsersList,
       securityRefreshUsersButton
     } = getDomRefs();
+    const purchaseCajaBackdrop = document.getElementById('purchase-caja-backdrop');
+    const cashMixedRow = document.getElementById('cash-mixed-row');
+    const cashMixedCashInput = document.getElementById('cash-mixed-cash');
+    const cashMixedTransferInput = document.getElementById('cash-mixed-transfer');
+    const cashMixedTransferReferenceInput = document.getElementById('cash-mixed-transfer-reference');
+    const cashMixedCardInput = document.getElementById('cash-mixed-card');
+    const cashMixedCardReferenceInput = document.getElementById('cash-mixed-card-reference');
+    const saveCajaConfigButton = document.getElementById('save-caja-config');
+    const cashDraftStatus = document.getElementById('cash-draft-status');
+    const saleCajaBackdrop = document.getElementById('sale-caja-backdrop');
+    const saleCashMixedRow = document.getElementById('sale-cash-mixed-row');
+    const saleCashMixedCashInput = document.getElementById('sale-cash-mixed-cash');
+    const saleCashMixedTransferInput = document.getElementById('sale-cash-mixed-transfer');
+    const saleCashMixedTransferReferenceInput = document.getElementById('sale-cash-mixed-transfer-reference');
+    const saleCashMixedCardInput = document.getElementById('sale-cash-mixed-card');
+    const saleCashMixedCardReferenceInput = document.getElementById('sale-cash-mixed-card-reference');
+    const saveSaleCajaConfigButton = document.getElementById('save-sale-caja-config');
+    const saleCashDraftStatus = document.getElementById('sale-cash-draft-status');
     let editingProductId = null;
     let editingPurchasePaymentEntryId = null;
     let getEditingFlavorId = () => null;
@@ -757,8 +822,13 @@
     function applyTheme(theme) {
       const nextTheme = theme === 'dark' ? 'dark' : 'light';
       document.body.classList.toggle('theme-dark', nextTheme === 'dark');
-      themeToggleButton.textContent = nextTheme === 'dark' ? 'Modo claro' : 'Modo oscuro';
-      themeToggleButton.setAttribute('aria-pressed', nextTheme === 'dark' ? 'true' : 'false');
+      if (themeToggleButton) {
+        const isDark = nextTheme === 'dark';
+        themeToggleButton.textContent = isDark ? '☀' : '🌙';
+        themeToggleButton.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+        themeToggleButton.setAttribute('aria-label', isDark ? 'Activar modo claro' : 'Activar modo oscuro');
+        themeToggleButton.setAttribute('title', isDark ? 'Modo claro' : 'Modo oscuro');
+      }
       try {
         window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
       } catch (error) {
@@ -856,6 +926,8 @@
       getSavedAuthToken,
       getSavedAuthUser
     });
+
+    let hasShownBackendReadyToast = false;
 
     const {
       setAuthStatus,
@@ -1011,6 +1083,7 @@
       getExportDateStamp,
       getLastRecordPayment,
       getNormalizedRecordPaymentHistory,
+      getDateInputValue,
       getTodayInputValue,
       payablesCount,
       payablesFilterDateEndField,
@@ -1101,6 +1174,7 @@
       getLastRecordPayment,
       getNormalizedRecordPaymentHistory,
       getSaleItemTrackedCostSummary,
+      getDateInputValue,
       getTodayInputValue,
       isCashSale,
       isCreditSale,
@@ -1198,6 +1272,7 @@
       externalDebtNoteInput,
       externalDebtPartyInput,
       externalDebtPaymentAccountInput,
+      externalDebtPaymentAmountInput,
       externalDebtPaymentDateInput,
       externalDebtPaymentForm,
       externalDebtPaymentHistory,
@@ -1222,19 +1297,31 @@
       formatDate,
       fundBankBalance,
       fundBankRecords,
+      fundBankFilterDateEndInput,
+      fundBankFilterDateStartInput,
+      fundBankFilterDirectionInput,
+      fundBankFilterSearchInput,
       fundCashAvailable,
       fundCashBalance,
+      fundCashFilterDateEndInput,
+      fundCashFilterDateStartInput,
+      fundCashFilterDirectionInput,
+      fundCashFilterSearchInput,
       fundCashMinimum,
       fundCashRecords,
       fundCashReserveNote,
       fundOverviewPanel,
       fundCashPanel,
       fundBankPanel,
+      fundTransfersPanel,
       fundExternalPanel,
+      fundSettingsPanel,
       fundOpeningBankInput,
       fundOpeningCashInput,
       fundMinimumCashInput,
       fundTabs,
+      clearFundBankFiltersButton,
+      clearFundCashFiltersButton,
       getActionIcon,
       getDefaultFundSettings,
       getExportDateStamp,
@@ -1247,6 +1334,7 @@
       getNormalizedRecordPaymentHistory,
       getPurchaseTotalAmount,
       getSaleTotalAmount,
+      getDateInputValue,
       getTodayInputValue,
       openPaymentReimbursementBatchButton,
       paymentBeneficiaryInput,
@@ -1256,6 +1344,7 @@
       paymentCategoryInput,
       paymentCategoryList,
       paymentCategoryNameInput,
+      paymentCategorySearchInput,
       paymentCategoryStatus,
       paymentCategorySubmitButton,
       paymentCatalogPanel,
@@ -1272,6 +1361,7 @@
       paymentNewPanel,
       paymentNoteInput,
       paymentPendingPanel,
+      paymentPendingSearchInput,
       paymentPendingRecords,
       paymentRecords,
       paymentReferenceField,
@@ -1300,6 +1390,7 @@
       addSaleExtraButton,
       addSaleLineButton,
       buildOptions,
+      buildPurchaseLinkedOptions,
       buildSaleExtraSelectOptions,
       buildSaleComponentOptions,
       buildToppingOptions,
@@ -1308,6 +1399,7 @@
       findProductById,
       findSaleExtraCatalogItem,
       formatCurrency,
+      getPurchaseLinkedTargets,
       getActiveBucketForFlavorId,
       getActiveSauceControlForSauceId,
       getActiveToppingControlForToppingId,
@@ -1324,13 +1416,22 @@
       productUsesFreeComponents,
       productUsesRecipe,
       requiresPaymentReference,
+      saleCajaBackdrop,
       saleCajaFloat,
       saleCashChangeText,
       saleCashMethodInput,
+      saleCashMixedCardInput,
+      saleCashMixedCardReferenceInput,
+      saleCashMixedCashInput,
+      saleCashMixedRow,
+      saleCashMixedTransferInput,
+      saleCashMixedTransferReferenceInput,
+      saleCashDraftStatus,
       saleCashReceivedInput,
       saleCashReferenceInput,
       saleCashReferenceRow,
       saleCashTotalText,
+      saveSaleCajaConfigButton,
       saleDueDateField,
       saleDueDateInput,
       saleInfo,
@@ -1722,19 +1823,19 @@
 
     function getFreeComponentProducts() {
       return state.productos.filter(producto => {
-        const mode = getProductInventoryMode(producto);
-        return mode === 'materia-prima' || mode === 'directo';
+        return getProductInventoryMode(producto) === 'materia-prima' && !getPurchaseLinkedTargets(producto).length;
       });
     }
 
     function buildSaleComponentOptions(selectedId = '') {
-      const products = getFreeComponentProducts();
-      if (!products.length) {
-        return '<option value="">No hay componentes disponibles</option>';
+      const selectedValue = String(selectedId || '');
+      const rawComponentProducts = getFreeComponentProducts();
+      if (!rawComponentProducts.length) {
+        return '<option value="">No hay materia prima disponible</option>';
       }
-      return `<option value="">Seleccionar componente</option>${products.map(producto => {
+      return `<option value="">Seleccionar materia prima</option>${rawComponentProducts.map(producto => {
         const stockLabel = Number(producto.stock || 0);
-        return `<option value="${escapeHtml(producto.id)}" data-name="${escapeHtml(producto.nombre)}" ${String(producto.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(producto.nombre)} · stock ${stockLabel}</option>`;
+        return `<option value="${escapeHtml(producto.id)}" data-name="${escapeHtml(producto.nombre)}" data-source-category="producto" data-source-id="${escapeHtml(producto.id)}" ${String(producto.id) === selectedValue ? 'selected' : ''}>${escapeHtml(producto.nombre)} - stock ${formatInventoryQuantity(stockLabel)}</option>`;
       }).join('')}`;
     }
 
@@ -1757,6 +1858,35 @@
       return materias.map(producto => `
         <option value="${escapeHtml(producto.id)}" ${String(producto.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(producto.nombre)} (${Number(producto.stock || 0)} porciones)</option>
       `).join('');
+    }
+
+    function populateRawMaterialSelect(selectElement, selectedId = '') {
+      if (!selectElement) {
+        return;
+      }
+
+      const materias = getMateriaPrimaProducts();
+      const optionData = materias.length
+        ? materias.map(producto => ({
+          value: String(producto.id),
+          label: `${String(producto.nombre || '')} (${Number(producto.stock || 0)} porciones)`
+        }))
+        : [{ value: '', label: 'No hay materias primas' }];
+
+      const selectedValue = String(selectedId || '');
+      const fragment = document.createDocumentFragment();
+      optionData.forEach(item => {
+        const option = document.createElement('option');
+        option.value = item.value;
+        option.textContent = item.label;
+        option.selected = item.value === selectedValue;
+        fragment.appendChild(option);
+      });
+
+      selectElement.replaceChildren(fragment);
+      if (selectedValue) {
+        selectElement.value = selectedValue;
+      }
     }
 
     function getActiveBucketForFlavorId(flavorId) {
@@ -1917,10 +2047,16 @@
         const items = Array.isArray(venta.items) ? venta.items : [];
         return total + items.reduce((sum, item) => {
           const flavors = Array.isArray(item.sabores) ? item.sabores : [];
-          return sum + flavors.reduce((flavorSum, flavor) => {
+          const components = Array.isArray(item.componentes) ? item.componentes : [];
+          const flavorConsumption = flavors.reduce((flavorSum, flavor) => {
             return String(flavor.id || '') === normalizedFlavorId
               ? flavorSum + Number(flavor.porciones || 0)
               : flavorSum;
+          }, 0);
+          return sum + flavorConsumption + components.reduce((componentSum, component) => {
+            return String(component.sourceCategory || '') === 'sabor' && String(component.sourceId || '') === normalizedFlavorId
+              ? componentSum + Number(component.cantidadTotal || component.cantidad || 0)
+              : componentSum;
           }, 0);
         }, 0);
       }, 0);
@@ -1979,10 +2115,16 @@
         const items = Array.isArray(venta.items) ? venta.items : [];
         return total + items.reduce((sum, item) => {
           const addons = Array.isArray(item.adicionales) ? item.adicionales : [];
-          return sum + addons.reduce((addonSum, addon) => {
+          const components = Array.isArray(item.componentes) ? item.componentes : [];
+          const addonConsumption = addons.reduce((addonSum, addon) => {
             return String(addon.id || '') === normalizedToppingId
               ? addonSum + Number(addon.cantidad || 0)
               : addonSum;
+          }, 0);
+          return sum + addonConsumption + components.reduce((componentSum, component) => {
+            return String(component.sourceCategory || '') === 'topping' && String(component.sourceId || '') === normalizedToppingId
+              ? componentSum + Number(component.cantidadTotal || component.cantidad || 0)
+              : componentSum;
           }, 0);
         }, 0);
       }, 0);
@@ -2041,10 +2183,16 @@
         const items = Array.isArray(venta.items) ? venta.items : [];
         return total + items.reduce((sum, item) => {
           const addons = Array.isArray(item.adicionales) ? item.adicionales : [];
-          return sum + addons.reduce((addonSum, addon) => {
+          const components = Array.isArray(item.componentes) ? item.componentes : [];
+          const addonConsumption = addons.reduce((addonSum, addon) => {
             return String(addon.id || '') === normalizedSauceId
               ? addonSum + Number(addon.cantidad || 0)
               : addonSum;
+          }, 0);
+          return sum + addonConsumption + components.reduce((componentSum, component) => {
+            return String(component.sourceCategory || '') === 'salsa' && String(component.sourceId || '') === normalizedSauceId
+              ? componentSum + Number(component.cantidadTotal || component.cantidad || 0)
+              : componentSum;
           }, 0);
         }, 0);
       }, 0);
@@ -2143,7 +2291,6 @@
     }
 
     function getSaleExtraCatalogItems() {
-      const flavorProducts = state.productos.filter(producto => getProductInventoryMode(producto) === 'helado-sabores');
       const catalog = [
         ...getMateriaPrimaProducts().map(producto => ({
           label: `${producto.nombre} · materia prima${getProductCurrentStockLabel(producto)}`,
@@ -2151,27 +2298,6 @@
           price: Number(producto.precio || 0),
           kind: 'materia-prima',
           id: producto.id
-        })),
-        ...flavorProducts.map(producto => ({
-          label: `${producto.nombre} · helado por sabores${getProductCurrentStockLabel(producto)}`,
-          value: String(producto.nombre || '').trim(),
-          price: Number(producto.precio || 0),
-          kind: 'flavor-product',
-          id: producto.id
-        })),
-        ...state.toppings.filter(topping => hasToppingAvailableStock(topping.id) && getActiveToppingControlForToppingId(topping.id)).map(topping => ({
-          label: `${topping.nombre} · topping`,
-          value: String(topping.nombre || '').trim(),
-          price: 0,
-          kind: 'topping',
-          id: topping.id
-        })),
-        ...state.sauces.filter(sauce => hasSauceAvailableStock(sauce.id) && getActiveSauceControlForSauceId(sauce.id)).map(sauce => ({
-          label: `${sauce.nombre} · salsa/aderezo`,
-          value: String(sauce.nombre || '').trim(),
-          price: 0,
-          kind: 'sauce',
-          id: sauce.id
         }))
       ].filter(item => item.value);
 
@@ -2219,7 +2345,7 @@
 
     function productUsesRecipe(producto) {
       const mode = getProductInventoryMode(producto);
-      return mode === 'receta' || mode === 'mixto';
+      return mode === 'receta' || mode === 'mixto' || (mode === 'personalizado' && Array.isArray(producto?.ingredientes) && producto.ingredientes.length > 0);
     }
 
     function shouldShowSaleFlavorSection(producto) {
@@ -2678,7 +2804,7 @@
       const shouldShowFlavors = shouldShowSaleFlavorSection(producto);
 
       flavorField.classList.toggle('field-hidden', !shouldShowCustomization);
-      flavorToggleButton.classList.toggle('field-hidden', !shouldShowCustomization);
+      flavorToggleButton.classList.remove('field-hidden');
       if (!shouldShowCustomization) {
         row.dataset.flavorEditorOpen = 'false';
         flavorRows.innerHTML = '';
@@ -2997,7 +3123,8 @@
     function updateFormFields() {
       const mode = normalizeInventoryMode(controlModeInput.value) || 'directo';
       const isMateriaPrima = mode === 'materia-prima';
-      const usesRecipe = mode === 'receta' || mode === 'mixto';
+      const usesRequiredRecipe = mode === 'receta' || mode === 'mixto';
+      const usesRecipe = usesRequiredRecipe || mode === 'personalizado';
       const usesFlavors = mode === 'helado-sabores' || mode === 'mixto';
       const usesFreeComponents = mode === 'personalizado';
       const hasExtraFields = isMateriaPrima || usesRecipe || usesFlavors || usesFreeComponents;
@@ -3008,7 +3135,7 @@
 
       typeSelect.value = isMateriaPrima
         ? 'materia prima'
-        : usesRecipe
+        : usesRequiredRecipe
           ? 'producto terminado'
           : 'productos';
 
@@ -3152,7 +3279,11 @@
     function populateSelects() {
       refreshRecipeRowsOptions();
       refreshPurchaseLinesOptions();
-      refreshSaleLinesOptions();
+      if (salesComposer?.refreshSaleLinesOptions) {
+        salesComposer.refreshSaleLinesOptions();
+      } else {
+        refreshSaleLinesOptions();
+      }
       refreshSaleExtraCatalogOptions();
       renderDashboard();
       initializeSearchableProductPickers(document);
@@ -3173,7 +3304,11 @@
         addPurchaseLine();
       }
       if (!saleLines.querySelector('.purchase-row')) {
-        addSaleLine();
+        if (salesComposer?.addSaleLine) {
+          salesComposer.addSaleLine();
+        } else {
+          addSaleLine();
+        }
       }
       renderPurchaseInfo();
       renderPurchaseHistory();
@@ -3199,7 +3334,11 @@
     }
 
     function formatDate(dateString) {
-      const date = new Date(dateString);
+      const normalizedValue = String(dateString || '');
+      const dateOnlyMatch = normalizedValue.match(/^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.000)?Z)?$/);
+      const date = dateOnlyMatch
+        ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+        : new Date(dateString);
       return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
     }
 
@@ -3359,7 +3498,7 @@
       }
       editingPurchasePaymentEntryId = paymentEntry.id;
       purchasePayableMethodInput.value = paymentEntry.paymentMethod || 'efectivo';
-      purchasePayableDateInput.value = paymentEntry.date ? new Date(paymentEntry.date).toISOString().slice(0, 10) : getTodayInputValue();
+      purchasePayableDateInput.value = getDateInputValue(paymentEntry.date, getTodayInputValue());
       purchasePayableAmountInput.value = Number(paymentEntry.amount || 0).toFixed(2);
       purchasePayableReferenceInput.value = paymentEntry.paymentReference || '';
       updatePurchasePayableReferenceVisibility();
@@ -3386,7 +3525,12 @@
     }
 
     function formatCurrency(value) {
-      return `C$${Number(value || 0).toFixed(2).replace('.', ',')}`;
+      const amount = Number(value || 0);
+      const safeAmount = Number.isNaN(amount) ? 0 : amount;
+      const sign = safeAmount < 0 ? '-' : '';
+      const [integerPart, decimalPart] = Math.abs(safeAmount).toFixed(2).split('.');
+      const groupedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+      return `${sign}C$${groupedInteger},${decimalPart}`;
     }
 
     function setLastRegisteredPaymentForPrint(payment) {
@@ -3401,281 +3545,337 @@
       }
 
       const { autoPrint = false } = options;
-      const printWindow = window.open('', '_blank', 'width=900,height=720');
-      if (!printWindow) {
+      const jsPDFConstructor = window?.jspdf?.jsPDF;
+      if (typeof jsPDFConstructor !== 'function') {
         paymentStatus.className = 'status error';
-        paymentStatus.textContent = 'El navegador bloqueó la ventana del recibo. Permite ventanas emergentes e inténtalo de nuevo.';
+        paymentStatus.textContent = 'No se pudo preparar el PDF del recibo. Verifica la carga de jsPDF e intenta de nuevo.';
         return;
       }
 
       const receiptNumber = receipt.receiptNumber || receipt.reference || `REC-${String(receipt.recordId || receipt.id || '').slice(-6).toUpperCase()}`;
       const issueDate = receipt.issueDate || receipt.date;
-      const html = `
+      const normalizedDescription = String(receipt.description || '').trim() || 'No especificada';
+      const normalizedCounterparty = String(receipt.counterparty || '').trim() || 'No especificado';
+      const normalizedCategory = String(receipt.category || '').trim() || 'Sin clasificacion';
+      const normalizedMethod = String(receipt.methodLabel || '').trim() || '-';
+      const normalizedReference = String(receipt.reference || '').trim() || 'Sin referencia';
+      const normalizedStatus = String(receipt.statusLabel || '').trim() || 'Registrado';
+      const normalizedNote = String(receipt.note || '').trim() || 'Sin observacion';
+      const normalizedRecordId = String(receipt.recordId || receipt.id || '').trim();
+
+      const doc = new jsPDFConstructor({ orientation: 'portrait', unit: 'mm', format: 'letter' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const outerX = 10;
+      const outerY = 10;
+      const outerWidth = pageWidth - 20;
+      const outerHeight = 132;
+      const contentX = outerX + 6;
+      const contentWidth = outerWidth - 12;
+      const labelColor = [71, 85, 105];
+      const textColor = [15, 23, 42];
+
+      const drawWrappedText = (text, x, y, maxWidth, lineHeight = 4, maxLines = 2, options = {}) => {
+        const value = String(text || '').trim() || '-';
+        const lines = doc.splitTextToSize(value, maxWidth).slice(0, maxLines);
+        lines.forEach((line, index) => {
+          doc.text(String(line), x, y + (index * lineHeight), options);
+        });
+      };
+
+      const drawMetricBox = (x, y, w, h, label, value, extra = '') => {
+        doc.setDrawColor(203, 213, 225);
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(x, y, w, h, 2, 2, 'FD');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.6);
+        doc.setTextColor(...labelColor);
+        doc.text(String(label || '').toUpperCase(), x + 3, y + 4.8);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10.5);
+        doc.setTextColor(...textColor);
+        drawWrappedText(value, x + 3, y + 9.8, w - 6, 3.8, 2);
+        if (extra) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.8);
+          doc.setTextColor(...labelColor);
+          drawWrappedText(extra, x + 3, y + h - 3.2, w - 6, 3.1, 2);
+        }
+      };
+
+      doc.setDrawColor(203, 213, 225);
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(outerX, outerY, outerWidth, outerHeight, 4, 4, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.6);
+      doc.setTextColor(...textColor);
+      doc.setFillColor(226, 232, 240);
+      doc.roundedRect(contentX, outerY + 5, 26, 6, 3, 3, 'F');
+      doc.text('RECIBO DE PAGO', contentX + 2.5, outerY + 8.9);
+
+      doc.setFontSize(17);
+      doc.text(String(receiptNumber), contentX, outerY + 18.6);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(...labelColor);
+      doc.text(String(receipt.title || 'Comprobante de pago'), contentX, outerY + 24.2);
+
+      const metaX = contentX + contentWidth - 48;
+      doc.setFontSize(8.7);
+      doc.setTextColor(...textColor);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Fecha:', metaX, outerY + 10.5);
+      doc.text('Emitido:', metaX, outerY + 15.5);
+      doc.text('Estado:', metaX, outerY + 20.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...labelColor);
+      doc.text(String(formatDate(receipt.date)), metaX + 17, outerY + 10.5);
+      doc.text(String(formatDate(issueDate)), metaX + 17, outerY + 15.5);
+      doc.text(String(normalizedStatus), metaX + 17, outerY + 20.5);
+
+      const dividerY = outerY + 27;
+      doc.setDrawColor(...textColor);
+      doc.setLineWidth(0.5);
+      doc.line(contentX, dividerY, contentX + contentWidth, dividerY);
+
+      const metricGap = 2;
+      const metricWidth = (contentWidth - (metricGap * 3)) / 4;
+      const firstMetricY = dividerY + 3;
+      const secondMetricY = firstMetricY + 16;
+
+      drawMetricBox(contentX, firstMetricY, metricWidth, 14, 'Tercero', normalizedCounterparty);
+      drawMetricBox(contentX + metricWidth + metricGap, firstMetricY, metricWidth, 14, 'Concepto', normalizedCategory);
+      drawMetricBox(contentX + ((metricWidth + metricGap) * 2), firstMetricY, metricWidth, 14, 'Metodo', normalizedMethod);
+      drawMetricBox(
+        contentX + ((metricWidth + metricGap) * 3),
+        firstMetricY,
+        metricWidth,
+        14,
+        'Referencia',
+        normalizedReference
+      );
+
+      const internalIdRowHeight = normalizedRecordId ? 10 : 0;
+      if (normalizedRecordId) {
+        doc.setDrawColor(203, 213, 225);
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(contentX, secondMetricY, contentWidth, internalIdRowHeight, 2, 2, 'FD');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.4);
+        doc.setTextColor(...textColor);
+        doc.text('ID INTERNO:', contentX + 3, secondMetricY + 4.8);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.3);
+        doc.setTextColor(...labelColor);
+        drawWrappedText(normalizedRecordId, contentX + 23, secondMetricY + 4.8, contentWidth - 26, 3.1, 2);
+      }
+
+      const detailStartY = secondMetricY + (internalIdRowHeight > 0 ? internalIdRowHeight + 2 : 0);
+
+      const detailWidth = (contentWidth * 0.64);
+      const amountWidth = contentWidth - detailWidth - metricGap;
+      const detailHeight = 23;
+
+      doc.setDrawColor(203, 213, 225);
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(contentX, detailStartY, detailWidth, detailHeight, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.8);
+      doc.setTextColor(...textColor);
+      doc.text('DESCRIPCION', contentX + 4, detailStartY + 6.5);
+      doc.text('OBSERVACION', contentX + 4, detailStartY + 13.8);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.6);
+      doc.setTextColor(...textColor);
+      drawWrappedText(normalizedDescription, contentX + 56, detailStartY + 6.5, detailWidth - 60, 3.8, 2);
+      drawWrappedText(normalizedNote, contentX + 56, detailStartY + 13.8, detailWidth - 60, 3.8, 2);
+
+      doc.setDrawColor(219, 226, 240);
+      doc.setLineWidth(0.3);
+      doc.line(contentX + 4, detailStartY + 9, contentX + detailWidth - 4, detailStartY + 9);
+
+      const amountX = contentX + detailWidth + metricGap;
+      doc.setDrawColor(203, 213, 225);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(amountX, detailStartY, amountWidth, detailHeight, 2, 2, 'FD');
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...labelColor);
+      doc.text('MONTO PAGADO', amountX + 4, detailStartY + 6.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16.5);
+      doc.setTextColor(...textColor);
+      doc.text(String(formatCurrency(receipt.amount)), amountX + 4, detailStartY + 14.8);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.8);
+      doc.setTextColor(...labelColor);
+      drawWrappedText('Este recibo respalda el movimiento registrado en el sistema.', amountX + 4, detailStartY + 20, amountWidth - 8, 3.1, 2);
+
+      const signatureY = detailStartY + detailHeight + 5;
+      const signatureGap = 4;
+      const signatureWidth = (contentWidth - signatureGap) / 2;
+      const signatureHeight = 26;
+      const drawSignatureBox = (x, label) => {
+        doc.setDrawColor(148, 163, 184);
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(x, signatureY, signatureWidth, signatureHeight, 2, 2, 'FD');
+        doc.setDrawColor(71, 85, 105);
+        doc.setLineWidth(0.3);
+        doc.line(x + 5, signatureY + signatureHeight - 8, x + signatureWidth - 5, signatureY + signatureHeight - 8);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(51, 65, 85);
+        doc.text(label, x + (signatureWidth / 2), signatureY + signatureHeight - 3.5, { align: 'center' });
+      };
+
+      drawSignatureBox(contentX, 'Entregado por');
+      drawSignatureBox(contentX + signatureWidth + signatureGap, 'Recibido por');
+
+      const footerY = signatureY + signatureHeight + 6;
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.2);
+      doc.line(contentX, footerY - 2.5, contentX + contentWidth, footerY - 2.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.7);
+      doc.setTextColor(...labelColor);
+      drawWrappedText(
+        receipt.footerText || 'Documento generado desde el modulo Pagos. Conserva este recibo como respaldo de la salida registrada.',
+        contentX,
+        footerY,
+        contentWidth,
+        3.4,
+        2
+      );
+
+      const pdfBlob = doc.output('blob');
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+
+      const previewWindow = window.open('', '_blank', 'width=980,height=760');
+      if (!previewWindow) {
+        URL.revokeObjectURL(pdfUrl);
+        paymentStatus.className = 'status error';
+        paymentStatus.textContent = 'El navegador bloqueo la ventana del recibo. Permite ventanas emergentes e intenta de nuevo.';
+        return;
+      }
+
+      if (!window.__receiptPdfCleanupBound) {
+        window.__receiptPdfCleanupBound = true;
+        window.addEventListener('message', event => {
+          const data = event?.data;
+          if (!data || data.type !== 'release-receipt-pdf-url' || typeof data.url !== 'string') {
+            return;
+          }
+          try {
+            URL.revokeObjectURL(data.url);
+          } catch (error) {
+            console.warn('No se pudo liberar la URL temporal del PDF', error);
+          }
+        });
+      }
+
+      const viewerHtml = `
         <!DOCTYPE html>
         <html lang="es">
           <head>
             <meta charset="UTF-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-            <title>Recibo ${escapeHtml(receiptNumber)}</title>
+            <title>Recibo PDF ${escapeHtml(receiptNumber)}</title>
             <style>
               * { box-sizing: border-box; }
-              @page {
-                size: 8.5in 5.5in;
-                margin: 0.35in;
-              }
               body {
                 margin: 0;
-                font-family: Arial, Helvetica, sans-serif;
+                font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+                background: #eef2f7;
                 color: #0f172a;
-                background: #f8fafc;
               }
-              .preview-actions {
+              .toolbar {
                 position: sticky;
                 top: 0;
-                z-index: 10;
+                z-index: 2;
                 display: flex;
-                justify-content: flex-end;
+                align-items: center;
                 gap: 10px;
-                padding: 12px 16px;
+                padding: 10px 14px;
                 border-bottom: 1px solid #dbe2f0;
                 background: #ffffff;
               }
-              .preview-btn {
-                border: 1px solid #9db4ff;
-                background: #4f67ff;
+              .toolbar .hint {
+                margin-right: auto;
+                font-size: 12px;
+                color: #475569;
+              }
+              .toolbar button {
+                border: 1px solid #1d4ed8;
+                background: #1d4ed8;
                 color: #ffffff;
                 border-radius: 999px;
-                padding: 8px 14px;
+                padding: 7px 14px;
                 font: inherit;
                 font-weight: 700;
                 cursor: pointer;
               }
-              .preview-hint {
-                margin-right: auto;
-                align-self: center;
-                color: #64748b;
-                font-size: 12px;
-              }
-              .sheet {
+              .viewer {
+                height: calc(100vh - 53px);
                 width: 100%;
-                max-width: 7.8in;
-                min-height: 4.6in;
-                margin: 18px auto;
-                padding: 20px 24px;
+                border: 0;
                 background: #ffffff;
-                border: 1px solid #dbe2f0;
-                border-radius: 24px;
-                box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
-              }
-              .header {
-                display: flex;
-                justify-content: space-between;
-                gap: 18px;
-                align-items: flex-start;
-                padding-bottom: 18px;
-                border-bottom: 2px solid #e2e8f0;
-              }
-              .eyebrow {
-                display: inline-flex;
-                padding: 6px 12px;
-                border-radius: 999px;
-                background: #e0e7ff;
-                color: #374151;
-                font-size: 11px;
-                font-weight: 700;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-              }
-              h1 {
-                margin: 14px 0 8px;
-                font-size: 28px;
-                line-height: 1.1;
-              }
-              .header-meta {
-                text-align: right;
-                font-size: 13px;
-                color: #475569;
-              }
-              .summary {
-                display: grid;
-                grid-template-columns: repeat(4, minmax(0, 1fr));
-                gap: 14px;
-                margin: 18px 0;
-              }
-              .summary-card {
-                padding: 14px 16px;
-                border: 1px solid #dbe2f0;
-                border-radius: 18px;
-                background: #f8fafc;
-              }
-              .summary-card span {
-                display: block;
-                font-size: 12px;
-                color: #64748b;
-                margin-bottom: 6px;
-              }
-              .summary-card strong {
-                font-size: 18px;
-              }
-              table {
-                width: 100%;
-                border-collapse: collapse;
-                margin-top: 10px;
-              }
-              th,
-              td {
-                border-bottom: 1px solid #e2e8f0;
-                padding: 10px 8px;
-                vertical-align: top;
-                text-align: left;
-              }
-              th {
-                width: 32%;
-                color: #64748b;
-                font-size: 12px;
-                text-transform: uppercase;
-                letter-spacing: 0.04em;
-              }
-              .receipt-grid {
-                display: grid;
-                grid-template-columns: 1.15fr 0.85fr;
-                gap: 18px;
-                align-items: start;
-              }
-              .amount-box {
-                margin-top: 0;
-                padding: 18px 20px;
-                border-radius: 20px;
-                background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
-                border: 1px solid #c7d2fe;
-              }
-              .amount-box span {
-                display: block;
-                font-size: 12px;
-                color: #64748b;
-                margin-bottom: 8px;
-                text-transform: uppercase;
-                letter-spacing: 0.06em;
-              }
-              .amount-box strong {
-                font-size: 30px;
-              }
-              .footer {
-                margin-top: 18px;
-                padding-top: 18px;
-                border-top: 1px dashed #cbd5e1;
-                color: #64748b;
-                font-size: 12px;
-              }
-              .signatures {
-                display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 28px;
-                margin-top: 24px;
-              }
-              .signature-line {
-                border-top: 1px solid #94a3b8;
-                padding-top: 8px;
-                text-align: center;
-                font-size: 12px;
-                color: #475569;
-              }
-              @media print {
-                .preview-actions { display: none; }
-                body { background: #ffffff; }
-                .sheet {
-                  margin: 0 auto;
-                  border: none;
-                  border-radius: 0;
-                  box-shadow: none;
-                  max-width: none;
-                  min-height: auto;
-                  padding: 0;
-                }
               }
             </style>
           </head>
           <body>
-            <div class="preview-actions">
-              <span class="preview-hint">Recibo listo para media carta.</span>
-              <button class="preview-btn" onclick="window.print()">Imprimir recibo</button>
+            <div class="toolbar">
+              <span class="hint">Vista PDF del recibo (sin descarga).</span>
+              <button type="button" id="print-pdf-btn">Imprimir PDF</button>
             </div>
-            <main class="sheet">
-              <header class="header">
-                <div>
-                  <span class="eyebrow">Recibo de pago</span>
-                  <h1>${escapeHtml(receiptNumber)}</h1>
-                  <div>${escapeHtml(receipt.title || 'Comprobante de pago')}</div>
-                </div>
-                <div class="header-meta">
-                  <div><strong>Fecha:</strong> ${escapeHtml(formatDate(receipt.date))}</div>
-                  <div><strong>Emitido:</strong> ${escapeHtml(formatDate(issueDate))}</div>
-                  <div><strong>Estado:</strong> ${escapeHtml(receipt.statusLabel || 'Registrado')}</div>
-                </div>
-              </header>
-
-              <section class="summary">
-                <article class="summary-card">
-                  <span>Tercero</span>
-                  <strong>${escapeHtml(receipt.counterparty || 'No especificado')}</strong>
-                </article>
-                <article class="summary-card">
-                  <span>Concepto</span>
-                  <strong>${escapeHtml(receipt.category || 'Sin clasificación')}</strong>
-                </article>
-                <article class="summary-card">
-                  <span>Método</span>
-                  <strong>${escapeHtml(receipt.methodLabel || '-')}</strong>
-                </article>
-                <article class="summary-card">
-                  <span>Referencia</span>
-                  <strong>${escapeHtml(receipt.reference || 'Sin referencia')}</strong>
-                </article>
-              </section>
-
-              <section class="receipt-grid">
-                <table>
-                  <tbody>
-                    <tr>
-                      <th>Descripción</th>
-                      <td>${escapeHtml(receipt.description || 'N/A')}</td>
-                    </tr>
-                    <tr>
-                      <th>Observación</th>
-                      <td>${escapeHtml(receipt.note || 'Sin observación')}</td>
-                    </tr>
-                    <tr>
-                      <th>ID de registro</th>
-                      <td>${escapeHtml(String(receipt.recordId || receipt.id || 'N/A'))}</td>
-                    </tr>
-                  </tbody>
-                </table>
-
-                <section class="amount-box">
-                  <span>Monto pagado</span>
-                  <strong>${escapeHtml(formatCurrency(receipt.amount))}</strong>
-                </section>
-              </section>
-
-              <div class="signatures">
-                <div class="signature-line">Entregado por</div>
-                <div class="signature-line">Recibido por</div>
-              </div>
-
-              <footer class="footer">
-                ${escapeHtml(receipt.footerText || 'Documento generado desde el módulo Pagos. Conserva este recibo como respaldo de la salida registrada.')}
-              </footer>
-            </main>
+            <iframe id="receipt-pdf-frame" class="viewer" src="${pdfUrl}"></iframe>
             <script>
-              ${autoPrint ? 'window.addEventListener("load", () => window.print());' : ''}
+              const frame = document.getElementById('receipt-pdf-frame');
+              const printButton = document.getElementById('print-pdf-btn');
+              const shouldAutoPrint = ${autoPrint ? 'true' : 'false'};
+
+              const runPrint = () => {
+                try {
+                  if (frame && frame.contentWindow) {
+                    frame.contentWindow.focus();
+                    frame.contentWindow.print();
+                    return;
+                  }
+                } catch (error) {
+                  console.warn('No se pudo imprimir desde iframe PDF, usando print de ventana.', error);
+                }
+                window.print();
+              };
+
+              if (printButton) {
+                printButton.addEventListener('click', runPrint);
+              }
+
+              if (shouldAutoPrint && frame) {
+                frame.addEventListener('load', () => {
+                  setTimeout(runPrint, 220);
+                }, { once: true });
+              }
+
+              window.addEventListener('beforeunload', () => {
+                try {
+                  if (window.opener) {
+                    window.opener.postMessage({ type: 'release-receipt-pdf-url', url: '${pdfUrl}' }, '*');
+                  }
+                } catch (error) {
+                  console.warn('No se pudo notificar cierre de vista PDF', error);
+                }
+              });
             <\/script>
           </body>
         </html>
       `;
 
-      printWindow.document.open();
-      printWindow.document.write(html);
-      printWindow.document.close();
+      previewWindow.document.open();
+      previewWindow.document.write(viewerHtml);
+      previewWindow.document.close();
     }
 
     function printPaymentReceipt(payment = lastRegisteredPayment, options = {}) {
@@ -3808,7 +4008,7 @@
         return;
       }
       editingPaymentId = String(payment.id);
-      paymentDateInput.value = payment.fecha ? new Date(payment.fecha).toISOString().slice(0, 10) : getTodayInputValue();
+      paymentDateInput.value = getDateInputValue(payment.fecha, getTodayInputValue());
       paymentCategoryInput.value = String(payment.categoriaId || '');
       paymentMethodInput.value = String(payment.paymentMethod || 'efectivo');
       paymentAmountInput.value = Number(payment.monto || 0).toFixed(2);
@@ -3854,14 +4054,16 @@
       }
       fundTabs.forEach(button => button.classList.toggle('active', button.dataset.fundTab === 'external'));
       fundOverviewPanel.classList.add('field-hidden');
+      fundSettingsPanel.classList.remove('active');
       fundCashPanel.classList.remove('active');
       fundBankPanel.classList.remove('active');
+      fundTransfersPanel.classList.remove('active');
       fundExternalPanel.classList.add('active');
       editingExternalDebtId = String(debt.id);
       externalDebtTypeInput.value = debt.type || 'por-pagar';
-      externalDebtCategoryInput.value = (debt.categoria || debt.category || 'gasto');
-      externalDebtDateInput.value = debt.fecha ? new Date(debt.fecha).toISOString().slice(0, 10) : getTodayInputValue();
-      externalDebtDueDateInput.value = debt.dueDate ? new Date(debt.dueDate).toISOString().slice(0, 10) : '';
+      externalDebtCategoryInput.value = resolvePaymentCategoryValue(debt.categoria || debt.category || 'gasto');
+      externalDebtDateInput.value = getDateInputValue(debt.fecha, getTodayInputValue());
+      externalDebtDueDateInput.value = getDateInputValue(debt.dueDate, '');
       externalDebtAmountInput.value = Number(getExternalDebtOriginalAmount(debt) || 0).toFixed(2);
       externalDebtPartyInput.value = debt.tercero || '';
       externalDebtConceptInput.value = debt.concepto || '';
@@ -4039,17 +4241,120 @@
       }
     });
 
+    function parseCashAmount(value) {
+      const normalized = Number(String(value ?? '').replace(',', '.'));
+      return Number.isNaN(normalized) ? 0 : normalized;
+    }
+
+    function setCashDraftMessage(message, isError = false) {
+      if (!cashDraftStatus) {
+        return;
+      }
+      cashDraftStatus.textContent = message;
+      cashDraftStatus.classList.toggle('error-text', Boolean(isError));
+    }
+
+    function getPurchaseMixedSnapshot() {
+      return {
+        cash: Math.max(parseCashAmount(cashMixedCashInput?.value), 0),
+        transfer: Math.max(parseCashAmount(cashMixedTransferInput?.value), 0),
+        transferReference: String(cashMixedTransferReferenceInput?.value || '').trim(),
+        card: Math.max(parseCashAmount(cashMixedCardInput?.value), 0),
+        cardReference: String(cashMixedCardReferenceInput?.value || '').trim(),
+      };
+    }
+
+    function buildPurchaseMixedReference(snapshot) {
+      const parts = [];
+      if (snapshot.cash > 0) {
+        parts.push(`Efectivo ${formatCurrency(snapshot.cash)}`);
+      }
+      if (snapshot.transfer > 0) {
+        parts.push(`Transferencia ${formatCurrency(snapshot.transfer)}${snapshot.transferReference ? ` ref ${snapshot.transferReference}` : ''}`);
+      }
+      if (snapshot.card > 0) {
+        parts.push(`Tarjeta ${formatCurrency(snapshot.card)}${snapshot.cardReference ? ` ref ${snapshot.cardReference}` : ''}`);
+      }
+      return parts.length ? `Mixto: ${parts.join(' | ')}` : '';
+    }
+
+    function resolvePurchaseCashPayload(totalAmount, options = {}) {
+      const { forSubmit = false } = options;
+      const paymentMethod = String(cashMethodInput?.value || '').trim();
+      const isMixed = paymentMethod === 'mixto';
+
+      if (!isMixed) {
+        const cashOut = parseCashAmount(cashOutInput?.value);
+        const reference = String(cashReferenceInput?.value || '').trim();
+        if (forSubmit && (Number.isNaN(cashOut) || cashOut <= 0)) {
+          return { ok: false, error: 'En contado, el monto de salida debe ser mayor que cero.' };
+        }
+        if (forSubmit && requiresPaymentReference(paymentMethod) && !reference) {
+          return { ok: false, error: 'La referencia es obligatoria para tarjeta o transferencia.' };
+        }
+        return {
+          ok: true,
+          cashOut,
+          paymentReference: reference || null,
+          paymentBreakdown: null,
+        };
+      }
+
+      const snapshot = getPurchaseMixedSnapshot();
+      const totalMixed = snapshot.cash + snapshot.transfer + snapshot.card;
+      if (forSubmit && totalMixed <= 0) {
+        return { ok: false, error: 'En método mixto debes indicar al menos un monto mayor a cero.' };
+      }
+      if (forSubmit && Math.abs(totalMixed - totalAmount) > 0.01) {
+        return { ok: false, error: 'En compras con método mixto, el desglose debe cuadrar exactamente con el total.' };
+      }
+      if (forSubmit && snapshot.transfer > 0 && !snapshot.transferReference) {
+        return { ok: false, error: 'Agrega la referencia de transferencia en el detalle mixto.' };
+      }
+      if (forSubmit && snapshot.card > 0 && !snapshot.cardReference) {
+        return { ok: false, error: 'Agrega la referencia de tarjeta en el detalle mixto.' };
+      }
+
+      return {
+        ok: true,
+        cashOut: totalMixed,
+        paymentReference: buildPurchaseMixedReference(snapshot) || null,
+        paymentBreakdown: {
+          efectivo: snapshot.cash,
+          transferencia: snapshot.transfer,
+          transferenciaReferencia: snapshot.transferReference || null,
+          tarjeta: snapshot.card,
+          tarjetaReferencia: snapshot.cardReference || null,
+        }
+      };
+    }
+
     function updateCashReconciliation() {
       const totalAmount = calculatePurchaseTotalAmount();
+      const isMixed = cashMethodInput.value === 'mixto';
+      const payload = resolvePurchaseCashPayload(totalAmount);
       cashTotalText.textContent = formatCurrency(totalAmount);
+      if (isMixed && cashOutInput) {
+        const mixedTotal = payload.ok ? Number(payload.cashOut || 0) : 0;
+        cashOutInput.value = mixedTotal > 0 ? mixedTotal.toFixed(2) : '';
+      }
     }
 
     function updateCashReferenceVisibility() {
-      const shouldShowReference = requiresPaymentReference(cashMethodInput.value);
+      const isMixed = cashMethodInput.value === 'mixto';
+      const shouldShowReference = !isMixed && requiresPaymentReference(cashMethodInput.value);
       cashReferenceRow.classList.toggle('field-hidden', !shouldShowReference);
+      cashMixedRow?.classList.toggle('field-hidden', !isMixed);
       cashReferenceInput.required = shouldShowReference;
       if (!shouldShowReference) {
         cashReferenceInput.value = '';
+      }
+      if (!isMixed) {
+        if (cashMixedCashInput) cashMixedCashInput.value = '';
+        if (cashMixedTransferInput) cashMixedTransferInput.value = '';
+        if (cashMixedTransferReferenceInput) cashMixedTransferReferenceInput.value = '';
+        if (cashMixedCardInput) cashMixedCardInput.value = '';
+        if (cashMixedCardReferenceInput) cashMixedCardReferenceInput.value = '';
       }
     }
 
@@ -4062,7 +4367,7 @@
         return;
       }
       const totalAmount = calculatePurchaseTotalAmount();
-      const formattedTotal = `C$${totalAmount.toFixed(2).replace('.', ',')}`;
+      const formattedTotal = formatCurrency(totalAmount);
       purchaseInfo.innerHTML = `
         <strong>${rows.length} productos</strong> · Total estimado: ${formattedTotal}
       `;
@@ -4079,10 +4384,13 @@
       if (paymentType === 'contado') {
         const selectedMethod = cashMethodInput.value || 'sin método';
         openCajaButton.classList.remove('field-hidden');
-        purchasePaymentSummary.textContent = `Contado activo: ${selectedMethod}. Abre CAJA para cuadre de salida.`;
+        purchasePaymentSummary.textContent = selectedMethod === 'mixto'
+          ? 'Contado activo: mixto. Define el desglose en CAJA y pulsa Guardar.'
+          : `Contado activo: ${selectedMethod}. Abre CAJA para cuadre de salida.`;
       } else {
         openCajaButton.classList.add('field-hidden');
         purchaseCajaFloat.classList.add('field-hidden');
+        purchaseCajaBackdrop?.classList.add('field-hidden');
         purchasePaymentSummary.textContent = 'Compra a crédito: define fecha de vencimiento.';
       }
       updateCashReferenceVisibility();
@@ -4251,7 +4559,7 @@
         <div class="field">
           <div class="purchase-row-actions">
             <button type="button" class="secondary-btn action-icon-btn toggle-sale-line" title="Guardar fila" aria-label="Guardar fila">✓</button>
-            <button type="button" class="secondary-btn action-icon-btn toggle-sale-flavor-editor field-hidden" title="Abrir personalización" aria-label="Abrir personalización">⚙</button>
+            <button type="button" class="secondary-btn action-icon-btn toggle-sale-flavor-editor" title="Abrir personalización" aria-label="Abrir personalización">⚙</button>
             <button type="button" class="delete-product action-icon-btn remove-sale-line" title="Eliminar fila" aria-label="Eliminar fila">🗑</button>
           </div>
         </div>
@@ -4513,7 +4821,86 @@
       return String(state || '').toLowerCase() === 'final' ? 'Final' : String(state || '').toLowerCase() === 'provisional' ? 'Provisional' : 'Sin costo';
     }
 
-    function getSaleItemTrackedCostSummary(item) {
+    function saleMovementMatchesContext(movement, venta, expectedType = '') {
+      if (!movement || !venta) {
+        return false;
+      }
+      const matchesDocument = String(movement.document || '') === String(venta.documento || '');
+      const matchesType = expectedType ? String(movement.type || '') === expectedType : true;
+      if (!matchesDocument || !matchesType) {
+        return false;
+      }
+      if (!venta.fecha || !movement.date) {
+        return true;
+      }
+      return new Date(movement.date).toDateString() === new Date(venta.fecha).toDateString();
+    }
+
+    function findSaleInventoryMovementCost(productId, venta, expectedType, expectedOutput = null, detailNeedle = '') {
+      const product = findProductByIdOrName(productId);
+      if (!product || !venta?.documento) {
+        return null;
+      }
+      const expectedQuantity = expectedOutput === null || expectedOutput === undefined ? null : Number(expectedOutput);
+      const normalizedDetailNeedle = String(detailNeedle || '').trim().toLowerCase();
+      const candidates = buildInventoryKardexMovements(product.id)
+        .filter(movement => saleMovementMatchesContext(movement, venta, expectedType))
+        .filter(movement => !normalizedDetailNeedle || String(movement.detail || '').toLowerCase().includes(normalizedDetailNeedle));
+      if (!candidates.length) {
+        return null;
+      }
+      const movement = expectedQuantity !== null && !Number.isNaN(expectedQuantity)
+        ? candidates.find(entry => Math.abs(Number(entry.output || 0) - expectedQuantity) <= 0.0001) || candidates[0]
+        : candidates[0];
+      const cost = Number(movement.totalCost || 0);
+      return cost > 0 ? cost : null;
+    }
+
+    function getSaleItemInventoryCostEntries(item, venta) {
+      const producto = findProductByIdOrName(item?.id, item?.nombre);
+      const itemQuantity = Number(item?.cantidad || 0);
+      const entries = [];
+      if (!producto || itemQuantity <= 0) {
+        return entries;
+      }
+
+      const mode = getProductInventoryMode(producto);
+      if (mode === 'directo') {
+        const directCost = findSaleInventoryMovementCost(producto.id, venta, 'Venta', itemQuantity);
+        if (directCost !== null) {
+          entries.push({ cost: directCost, state: 'final' });
+        }
+      }
+
+      if (Array.isArray(item?.ingredientes) && item.ingredientes.length) {
+        item.ingredientes.forEach(ingredient => {
+          const ingredientProduct = findProductByIdOrName(ingredient.id, ingredient.nombre);
+          const expectedOutput = Number(ingredient.cantidad || 0);
+          const ingredientCost = findSaleInventoryMovementCost(
+            ingredientProduct?.id || ingredient.id,
+            venta,
+            'Venta receta',
+            expectedOutput,
+            producto.nombre
+          );
+          if (ingredientCost !== null) {
+            entries.push({ cost: ingredientCost, state: 'final' });
+          }
+        });
+      }
+
+      (Array.isArray(item?.componentes) ? item.componentes : []).forEach(component => {
+        const expectedOutput = Number(component.cantidadTotal || (Number(component.cantidad || 0) * itemQuantity));
+        const componentCost = findSaleInventoryMovementCost(component.id, venta, 'Venta personalizada', expectedOutput, producto.nombre);
+        if (componentCost !== null) {
+          entries.push({ cost: componentCost, state: 'final' });
+        }
+      });
+
+      return entries;
+    }
+
+    function getSaleItemTrackedCostSummary(item, venta = null) {
       const flavors = Array.isArray(item?.sabores) ? item.sabores : [];
       const addons = Array.isArray(item?.adicionales) ? item.adicionales : [];
       const trackedEntries = [
@@ -4528,8 +4915,9 @@
           state: String(addon.costoEstado || '')
         }))
       ].filter(entry => entry.state || entry.provisional > 0 || entry.final > 0);
+      const inventoryCostEntries = getSaleItemInventoryCostEntries(item, venta);
 
-      if (!trackedEntries.length) {
+      if (!trackedEntries.length && !inventoryCostEntries.length) {
         return {
           hasTrackedCost: false,
           totalCost: 0,
@@ -4539,7 +4927,9 @@
       }
 
       const allFinal = trackedEntries.every(entry => entry.state === 'final');
-      const totalCost = trackedEntries.reduce((sum, entry) => sum + (allFinal ? entry.final : (entry.final > 0 ? entry.final : entry.provisional)), 0);
+      const trackedTotal = trackedEntries.reduce((sum, entry) => sum + (allFinal ? entry.final : (entry.final > 0 ? entry.final : entry.provisional)), 0);
+      const inventoryTotal = inventoryCostEntries.reduce((sum, entry) => sum + Number(entry.cost || 0), 0);
+      const totalCost = trackedTotal + inventoryTotal;
       const itemQuantity = Number(item?.cantidad || 0);
       const totalSale = Number(item?.precio || 0) * itemQuantity
         + calculateSaleAddonsTotal(item?.adicionales)
@@ -4549,7 +4939,7 @@
         hasTrackedCost: true,
         totalCost,
         utility: totalSale - totalCost,
-        state: allFinal ? 'final' : 'provisional'
+        state: trackedEntries.length && !allFinal ? 'provisional' : 'final'
       };
     }
 
@@ -4652,7 +5042,7 @@
       }
 
       const totalAmount = calculateInvoiceTotal(compra);
-      const paymentTypeLabel = getPurchasePaymentTypeLabel(compra);
+      const paymentTypeLabel = formatInvoicePaymentType(compra.paymentType);
       const paymentMethodLabel = formatInvoicePaymentMethod(compra.paymentMethod);
       const paidAtLabel = compra.paidAt ? formatDate(compra.paidAt) : 'Pendiente';
       const dueDateLabel = compra.dueDate ? formatDate(compra.dueDate) : 'No aplica';
@@ -4780,8 +5170,23 @@
                 text-align: center;
               }
               @media print {
+                @page {
+                  margin: 0.14in;
+                }
+                html,
+                body {
+                  height: auto;
+                  overflow: visible;
+                }
                 .preview-actions { display: none; }
                 .sheet { max-width: none; padding: 0; }
+                table,
+                tbody,
+                tr,
+                td,
+                th {
+                  break-inside: avoid;
+                }
               }
             </style>
           </head>
@@ -4934,10 +5339,6 @@
             <title>Factura ${escapeHtml(venta.documento || 'venta')}</title>
             <style>
               * { box-sizing: border-box; }
-              @page {
-                size: 3.5in 5in;
-                margin: 0.14in;
-              }
               body {
                 margin: 0;
                 font-family: Arial, Helvetica, sans-serif;
@@ -4974,7 +5375,6 @@
               }
               .sheet {
                 width: 3.22in;
-                min-height: 4.72in;
                 margin: 0 auto;
                 padding: 0.04in 0;
               }
@@ -5066,15 +5466,33 @@
                 color: #4b5563;
               }
               @media print {
+                @page {
+                  margin: 0.14in;
+                }
                 .preview-actions {
                   display: none;
+                }
+                html,
+                body {
+                  width: 3.5in;
+                  height: auto;
+                  overflow: visible;
+                  margin: 0 auto;
                 }
                 body {
                   background: #ffffff;
                 }
                 .sheet {
-                  width: auto;
-                  min-height: auto;
+                  width: 3.22in;
+                  min-height: 0;
+                  overflow: visible;
+                }
+                table,
+                tbody,
+                tr,
+                td,
+                th {
+                  break-inside: avoid;
                 }
               }
             </style>
@@ -5182,6 +5600,29 @@
 
     function getPaymentCategoryById(categoryId) {
       return state.paymentCategories.find(item => String(item.id) === String(categoryId)) || null;
+    }
+
+    function resolvePaymentCategoryValue(value) {
+      const rawValue = String(value || '').trim();
+      if (!rawValue) {
+        return '';
+      }
+      const directMatch = state.paymentCategories.find(category => String(category.id) === rawValue);
+      if (directMatch) {
+        return String(directMatch.id);
+      }
+      const normalizedValue = rawValue.toLowerCase();
+      const nameMatch = state.paymentCategories.find(category => String(category.nombre || '').trim().toLowerCase() === normalizedValue);
+      if (nameMatch) {
+        return String(nameMatch.id);
+      }
+      if (normalizedValue === 'gasto') {
+        const gastoMatch = state.paymentCategories.find(category => String(category.nombre || '').trim().toLowerCase() === 'gasto');
+        if (gastoMatch) {
+          return String(gastoMatch.id);
+        }
+      }
+      return '';
     }
 
     function legacyGetPaymentCategoryName(payment) {
@@ -5373,6 +5814,9 @@
 
       state.externalDebts.forEach(debt => {
         const debtType = String(debt.type || '').trim().toLowerCase() === 'por-cobrar' ? 'por-cobrar' : 'por-pagar';
+        const debtCategory = String(debt.categoria || debt.category || 'gasto').trim();
+        const debtCategoryRecord = state.paymentCategories.find(category => String(category.id) === debtCategory);
+        const debtCategoryName = debtCategoryRecord?.nombre || (debtCategory === 'gasto' ? 'Gasto' : debtCategory || 'Sin clasificación');
         getNormalizedRecordPaymentHistory(debt, getExternalDebtOriginalAmount(debt)).forEach((payment, index) => {
           const account = getFundAccountFromPaymentMethod(payment.paymentMethod || payment.account);
           if (!account) {
@@ -5387,6 +5831,8 @@
             module: 'deudas-externas',
             title: debt.concepto || 'Deuda externa',
             detail: debt.tercero ? `${debtType === 'por-cobrar' ? 'Cobro a' : 'Pago a'} ${debt.tercero}` : 'Movimiento por deuda externa',
+            category: debtCategory,
+            categoryName: debtCategoryName,
             reference: payment.paymentReference || null,
             paymentMethod: payment.paymentMethod || payment.account || null
           });
@@ -5800,6 +6246,14 @@
         const currentFilter = paymentFilterCategoryInput.value;
         paymentFilterCategoryInput.innerHTML = `<option value="all">Todas</option>${categoryOptions.map(category => `<option value="${escapeHtml(String(category.id))}">${escapeHtml(category.nombre)}</option>`).join('')}`;
         paymentFilterCategoryInput.value = categoryOptions.some(category => String(category.id) === String(currentFilter)) ? currentFilter : 'all';
+      }
+
+      if (externalDebtCategoryInput) {
+        const currentValue = externalDebtCategoryInput.value;
+        externalDebtCategoryInput.innerHTML = categoryOptions.length
+          ? `<option value="">Selecciona una clasificaciÃ³n</option>${categoryOptions.map(category => `<option value="${escapeHtml(String(category.id))}">${escapeHtml(category.nombre)}</option>`).join('')}`
+          : '<option value="">Crea primero una clasificaciÃ³n en Pagos</option>';
+        externalDebtCategoryInput.value = resolvePaymentCategoryValue(currentValue);
       }
     }
 
@@ -6267,7 +6721,7 @@
             : state.productos.find(p => p.nombre === ing.nombre);
           const unidad = materia?.medida ? ` ${escapeHtml(materia.medida)}` : '';
           const costo = materia ? Number(materia.precio) * Number(ing.cantidad) : 0;
-          return `<li>${escapeHtml(ing.nombre)}: ${Number(ing.cantidad)}${unidad}${materia ? ` — C$${costo.toFixed(2).replace('.', ',')}` : ''}</li>`;
+          return `<li>${escapeHtml(ing.nombre)}: ${Number(ing.cantidad)}${unidad}${materia ? ` — ${formatCurrency(costo)}` : ''}</li>`;
         }).join('');
         const costoTotal = ingredientes.reduce((sum, ing) => {
           const materia = ing.id
@@ -6282,7 +6736,7 @@
           <details>
             <summary>Receta</summary>
             <ul>${lista || '<li>No hay ingredientes definidos.</li>'}</ul>
-            <p>Costo estimado: C$${costoTotal.toFixed(2).replace('.', ',')}</p>
+            <p>Costo estimado: ${formatCurrency(costoTotal)}</p>
           </details>
           ${flavorBadge}
         `;
@@ -6511,7 +6965,7 @@
     }
 
     function resetInventoryMovementForms() {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayInputValue();
       if (inventoryInitialForm) inventoryInitialForm.reset();
       if (inventoryAdjustmentForm) inventoryAdjustmentForm.reset();
       if (inventoryInitialDateInput) inventoryInitialDateInput.value = today;
@@ -6612,7 +7066,7 @@
                   <tr>
                     <td>${escapeHtml(producto.nombre)}</td>
                     <td>${escapeHtml(renderInventoryModeLabel(producto))}</td>
-                    <td>${producto.precio !== undefined && !Number.isNaN(Number(producto.precio)) ? `C$${Number(producto.precio).toFixed(2).replace('.', ',')}` : 'N/A'}</td>
+                    <td>${producto.precio !== undefined && !Number.isNaN(Number(producto.precio)) ? formatCurrency(producto.precio) : 'N/A'}</td>
                     <td>${Number(producto.stockMin ?? producto.stockMinimo ?? 0)}</td>
                     <td>${renderRecipeDetail(producto)}</td>
                     <td>
@@ -6707,6 +7161,8 @@
       isExpensePayment,
       getPaymentCategoryName,
       getExternalDebtOriginalAmount,
+      getExternalDebtBalanceDue,
+      getExternalDebtStatus,
       calculateSaleInvoiceTotal,
       calculateSaleAddonsTotal,
       calculateSaleComponentsTotal,
@@ -6820,6 +7276,7 @@
       toppingRawMaterialInput,
       toppingStatus,
       toppingSubmitButton,
+      populateRawMaterialSelect,
       renderBucketControls,
       renderSauceControls,
       renderToppingControls,
@@ -6858,7 +7315,7 @@
           : isAvailable
             ? '· listo para abrir'
             : '· sin compra disponible';
-        return `<option value="${escapeHtml(sauce.id)}" ${String(sauce.id) === String(selectedId) ? 'selected' : ''} ${!activeControl && isAvailable ? '' : 'disabled'}>${escapeHtml(sauce.nombre)} ${statusLabel} · stock ${formatInventoryQuantity(availableStock)}</option>`;
+        return `<option value="${escapeHtml(sauce.id)}" ${String(sauce.id) === String(selectedId) ? 'selected' : ''} ${activeControl ? 'disabled' : ''}>${escapeHtml(sauce.nombre)} ${statusLabel} · stock ${formatInventoryQuantity(availableStock)}</option>`;
       }).join('');
     }
 
@@ -6907,7 +7364,7 @@
           sauceControlActiveList.innerHTML = '<p class="history-empty">No hay salsas abiertas en este momento.</p>';
         } else {
           sauceControlActiveList.innerHTML = `
-            <table class="history-table control-active-table">
+            <table class="history-table">
               <thead>
                 <tr>
                   <th>Salsa / aderezo</th>
@@ -6956,7 +7413,7 @@
           sauceControlHistoryList.innerHTML = '<p class="history-empty">Aún no hay historial de salsas.</p>';
         } else {
           sauceControlHistoryList.innerHTML = `
-            <table class="history-table control-active-table">
+            <table class="history-table">
               <thead>
                 <tr>
                   <th>Salsa / aderezo</th>
@@ -7051,7 +7508,7 @@
           toppingControlActiveList.innerHTML = '<p class="history-empty">No hay toppings abiertos en este momento.</p>';
         } else {
           toppingControlActiveList.innerHTML = `
-            <table class="history-table control-active-table">
+            <table class="history-table">
               <thead>
                 <tr>
                   <th>Topping</th>
@@ -7285,7 +7742,7 @@
         const sabores = await response.json();
         state.sabores = Array.isArray(sabores) ? sabores : [];
         if (flavorRawMaterialInput) {
-          flavorRawMaterialInput.innerHTML = buildRawMaterialOptions(flavorRawMaterialInput.value);
+          populateRawMaterialSelect(flavorRawMaterialInput, flavorRawMaterialInput.value);
         }
       } catch (error) {
         console.error(error);
@@ -7300,7 +7757,7 @@
         const toppings = await response.json();
         state.toppings = Array.isArray(toppings) ? toppings : [];
         if (toppingRawMaterialInput) {
-          toppingRawMaterialInput.innerHTML = buildRawMaterialOptions(toppingRawMaterialInput.value);
+          populateRawMaterialSelect(toppingRawMaterialInput, toppingRawMaterialInput.value);
         }
       } catch (error) {
         console.error(error);
@@ -7315,7 +7772,7 @@
         const sauces = await response.json();
         state.sauces = Array.isArray(sauces) ? sauces : [];
         if (sauceRawMaterialInput) {
-          sauceRawMaterialInput.innerHTML = buildRawMaterialOptions(sauceRawMaterialInput.value);
+          populateRawMaterialSelect(sauceRawMaterialInput, sauceRawMaterialInput.value);
         }
       } catch (error) {
         console.error(error);
@@ -7391,7 +7848,10 @@
         await Promise.all([fetchCompras(), fetchVentas(), fetchPaymentCategories(), fetchPayments(), fetchFundTransfers(), fetchFundSettings(), fetchExternalDebts(), fetchSabores(), fetchToppings(), fetchSauces(), fetchBucketControls(), fetchToppingControls(), fetchSauceControls(), fetchInventoryMovements()]);
         populateSelects();
         renderInventario();
-        setProductStatus('Productos sincronizados con el backend.');
+        if (!hasShownBackendReadyToast) {
+          showSuccess('Backend conectado. Datos sincronizados.');
+          hasShownBackendReadyToast = true;
+        }
       } catch (error) {
         console.error(error);
         setProductStatus(`No se pudo obtener los productos. ${error.message}.`, { error: true });
@@ -7454,9 +7914,10 @@
         : controlMode === 'receta' || controlMode === 'mixto'
           ? 'producto terminado'
           : 'productos';
+      const usesProductRecipe = controlMode === 'receta' || controlMode === 'mixto' || controlMode === 'personalizado';
       const ingredientes = [];
 
-      if (controlMode === 'receta' || controlMode === 'mixto') {
+      if (usesProductRecipe) {
         recipeRows.querySelectorAll('.recipe-row').forEach(row => {
           const select = row.querySelector('.ingredient-source');
           const cantidad = Number(row.querySelector('.ingredient-amount').value);
@@ -7476,7 +7937,7 @@
         modoControl: controlMode,
         stockMin: tipo === 'producto terminado' ? 0 : Number(formData.get('stockMin')),
         medida: formData.get('medida')?.trim() || undefined,
-        ingredientes: controlMode === 'receta' || controlMode === 'mixto' ? ingredientes : undefined,
+        ingredientes: usesProductRecipe && ingredientes.length ? ingredientes : undefined,
         controlSabores: controlMode === 'helado-sabores' || controlMode === 'mixto',
         rendimientoPorCompra: tipo === 'materia prima' ? Number(yieldPerPurchaseInput.value) : undefined,
         pelotasPorUnidad: controlMode === 'helado-sabores' || controlMode === 'mixto' ? Number(scoopsPerUnitInput.value) : undefined,
@@ -7505,7 +7966,7 @@
         showError('Define cuántas porciones rinde cada unidad comprada de la materia prima.');
         return;
       }
-      if ((controlMode === 'receta' || controlMode === 'mixto') && !newProduct.ingredientes.length) {
+      if ((controlMode === 'receta' || controlMode === 'mixto') && (!Array.isArray(newProduct.ingredientes) || !newProduct.ingredientes.length)) {
         setProductStatus('Agrega al menos un ingrediente para los productos con receta.', { error: true });
         showError('Agrega al menos un ingrediente para los productos con receta.');
         return;
@@ -7811,8 +8272,10 @@
           ? cashMethodInput.value
           : 'credito';
         const dueDateValue = purchaseDueDateInput.value;
-        const cashOutValue = Number(cashOutInput.value || 0);
-        const cashReferenceValue = cashReferenceInput.value.trim();
+        const totalAmount = calculatePurchaseTotalAmount();
+        const cashPayload = paymentTypeValue === 'contado'
+          ? resolvePurchaseCashPayload(totalAmount, { forSubmit: true })
+          : { ok: true, cashOut: null, paymentReference: null, paymentBreakdown: null };
 
         if (!setLoadingState(purchaseForm, true, { label: 'Registrando...' })) {
           return;
@@ -7825,17 +8288,10 @@
           return;
         }
 
-        if (paymentTypeValue === 'contado' && (Number.isNaN(cashOutValue) || cashOutValue <= 0)) {
+        if (paymentTypeValue === 'contado' && !cashPayload.ok) {
           purchaseStatus.className = 'status error';
-          purchaseStatus.textContent = 'En contado, el monto de salida debe ser mayor que cero.';
-          showError('En contado, el monto de salida debe ser mayor que cero.');
-          return;
-        }
-
-        if (paymentTypeValue === 'contado' && requiresPaymentReference(paymentMethodValue) && !cashReferenceValue) {
-          purchaseStatus.className = 'status error';
-          purchaseStatus.textContent = 'La referencia es obligatoria para tarjeta o transferencia.';
-          showError('La referencia es obligatoria para tarjeta o transferencia.');
+          purchaseStatus.textContent = cashPayload.error;
+          showError(cashPayload.error);
           return;
         }
 
@@ -7858,8 +8314,9 @@
             paymentType: paymentTypeValue,
             paymentMethod: paymentMethodValue,
             dueDate: dueDateValue,
-            cashOut: paymentTypeValue === 'contado' ? cashOutValue : null,
-            paymentReference: paymentTypeValue === 'contado' ? (cashReferenceValue || null) : null,
+            cashOut: paymentTypeValue === 'contado' ? cashPayload.cashOut : null,
+            paymentReference: paymentTypeValue === 'contado' ? (cashPayload.paymentReference || null) : null,
+            paymentBreakdown: paymentTypeValue === 'contado' ? (cashPayload.paymentBreakdown || null) : null,
             items
           })
         });
@@ -7876,7 +8333,14 @@
         cashMethodInput.value = '';
         cashOutInput.value = '';
         cashReferenceInput.value = '';
+        if (cashMixedCashInput) cashMixedCashInput.value = '';
+        if (cashMixedTransferInput) cashMixedTransferInput.value = '';
+        if (cashMixedTransferReferenceInput) cashMixedTransferReferenceInput.value = '';
+        if (cashMixedCardInput) cashMixedCardInput.value = '';
+        if (cashMixedCardReferenceInput) cashMixedCardReferenceInput.value = '';
         purchaseCajaFloat.classList.add('field-hidden');
+        purchaseCajaBackdrop?.classList.add('field-hidden');
+        setCashDraftMessage('Completa los campos y guarda para confirmar el cuadre.', false);
         updatePurchasePaymentSection();
         renderPurchaseInfo();
         await Promise.all([fetchProductos(), fetchCompras(), fetchPayments()]);
@@ -7915,18 +8379,58 @@
       }
       addPurchaseLine();
     });
+
+    function openPurchaseCajaModal() {
+      purchaseCajaFloat.classList.remove('field-hidden');
+      purchaseCajaBackdrop?.classList.remove('field-hidden');
+    }
+
+    function closePurchaseCajaModal() {
+      purchaseCajaFloat.classList.add('field-hidden');
+      purchaseCajaBackdrop?.classList.add('field-hidden');
+    }
+
     purchasePaymentTypeInput.addEventListener('change', updatePurchasePaymentSection);
     openCajaButton.addEventListener('click', () => {
-      purchaseCajaFloat.classList.toggle('field-hidden');
+      if (purchaseCajaFloat.classList.contains('field-hidden')) {
+        openPurchaseCajaModal();
+      } else {
+        closePurchaseCajaModal();
+      }
     });
     closeCajaButton.addEventListener('click', () => {
-      purchaseCajaFloat.classList.add('field-hidden');
+      closePurchaseCajaModal();
+    });
+    purchaseCajaBackdrop?.addEventListener('click', () => {
+      closePurchaseCajaModal();
     });
     cashMethodInput.addEventListener('change', () => {
       updateCashReferenceVisibility();
       updatePurchasePaymentSection();
+      setCashDraftMessage('Actualiza los datos de CAJA y pulsa Guardar para confirmar.', false);
     });
     cashOutInput.addEventListener('input', updateCashReconciliation);
+    [cashMixedCashInput, cashMixedTransferInput, cashMixedCardInput].forEach(input => {
+      input?.addEventListener('input', () => {
+        updateCashReconciliation();
+        setCashDraftMessage('Cambios pendientes en CAJA. Pulsa Guardar para confirmar.', false);
+      });
+    });
+    [cashMixedTransferReferenceInput, cashMixedCardReferenceInput, cashReferenceInput].forEach(input => {
+      input?.addEventListener('input', () => {
+        setCashDraftMessage('Cambios pendientes en CAJA. Pulsa Guardar para confirmar.', false);
+      });
+    });
+    saveCajaConfigButton?.addEventListener('click', () => {
+      const totalAmount = calculatePurchaseTotalAmount();
+      const payload = resolvePurchaseCashPayload(totalAmount, { forSubmit: true });
+      if (!payload.ok) {
+        setCashDraftMessage(payload.error, true);
+        return;
+      }
+      setCashDraftMessage('Datos de CAJA guardados para esta compra.', false);
+      updateCashReconciliation();
+    });
     purchaseDueDateInput.addEventListener('change', updatePurchasePaymentSection);
     filterDocumentInput.addEventListener('input', renderPurchaseRegistro);
     filterSupplierInput.addEventListener('input', renderPurchaseRegistro);
@@ -8092,9 +8596,9 @@
         const paymentMethodValue = paymentTypeValue === 'contado' ? saleCashMethodInput.value : 'credito';
         const dueDateValue = saleDueDateInput.value;
         const totalAmount = salesComposer.calculateSaleTotalAmount();
-        const cashReceivedValue = Number(saleCashReceivedInput.value || 0);
-        const cashChangeValue = Math.max(cashReceivedValue - totalAmount, 0);
-        const cashReferenceValue = saleCashReferenceInput.value.trim();
+        const cashPayload = paymentTypeValue === 'contado'
+          ? salesComposer.resolveSaleCashPayload(totalAmount, { forSubmit: true })
+          : { ok: true, cashReceived: null, cashChange: null, paymentReference: null, paymentBreakdown: null };
 
         if (!setLoadingState(saleForm, true, { label: 'Registrando...' })) {
           return;
@@ -8107,17 +8611,10 @@
           return;
         }
 
-        if (paymentTypeValue === 'contado' && (Number.isNaN(cashReceivedValue) || cashReceivedValue < totalAmount)) {
+        if (paymentTypeValue === 'contado' && !cashPayload.ok) {
           saleStatus.className = 'status error';
-          saleStatus.textContent = 'En contado, el monto recibido debe cubrir el total de la factura.';
-          showError('En contado, el monto recibido debe cubrir el total de la factura.');
-          return;
-        }
-
-        if (paymentTypeValue === 'contado' && requiresPaymentReference(paymentMethodValue) && !cashReferenceValue) {
-          saleStatus.className = 'status error';
-          saleStatus.textContent = 'La referencia es obligatoria para tarjeta o transferencia.';
-          showError('La referencia es obligatoria para tarjeta o transferencia.');
+          saleStatus.textContent = cashPayload.error;
+          showError(cashPayload.error);
           return;
         }
 
@@ -8138,9 +8635,10 @@
             paymentType: paymentTypeValue,
             paymentMethod: paymentMethodValue,
             dueDate: dueDateValue,
-            cashReceived: paymentTypeValue === 'contado' ? cashReceivedValue : null,
-            cashChange: paymentTypeValue === 'contado' ? cashChangeValue : null,
-            paymentReference: paymentTypeValue === 'contado' ? (cashReferenceValue || null) : null,
+            cashReceived: paymentTypeValue === 'contado' ? cashPayload.cashReceived : null,
+            cashChange: paymentTypeValue === 'contado' ? cashPayload.cashChange : null,
+            paymentReference: paymentTypeValue === 'contado' ? (cashPayload.paymentReference || null) : null,
+            paymentBreakdown: paymentTypeValue === 'contado' ? (cashPayload.paymentBreakdown || null) : null,
             items
           })
         });
@@ -8158,7 +8656,17 @@
         saleCashMethodInput.value = '';
         saleCashReceivedInput.value = '';
         saleCashReferenceInput.value = '';
+        if (saleCashMixedCashInput) saleCashMixedCashInput.value = '';
+        if (saleCashMixedTransferInput) saleCashMixedTransferInput.value = '';
+        if (saleCashMixedTransferReferenceInput) saleCashMixedTransferReferenceInput.value = '';
+        if (saleCashMixedCardInput) saleCashMixedCardInput.value = '';
+        if (saleCashMixedCardReferenceInput) saleCashMixedCardReferenceInput.value = '';
         saleCajaFloat.classList.add('field-hidden');
+        saleCajaBackdrop?.classList.add('field-hidden');
+        if (saleCashDraftStatus) {
+          saleCashDraftStatus.textContent = 'Completa los campos y guarda para confirmar el cuadre.';
+          saleCashDraftStatus.classList.remove('error-text');
+        }
         salesComposer.updateSalePaymentSection();
         salesComposer.renderSaleInfo();
         await fetchProductos();
@@ -8176,11 +8684,28 @@
     });
 
     salesComposer.installListeners();
+    function openSaleCajaModal() {
+      saleCajaFloat.classList.remove('field-hidden');
+      saleCajaBackdrop?.classList.remove('field-hidden');
+    }
+
+    function closeSaleCajaModal() {
+      saleCajaFloat.classList.add('field-hidden');
+      saleCajaBackdrop?.classList.add('field-hidden');
+    }
+
     openSaleCajaButton.addEventListener('click', () => {
-      saleCajaFloat.classList.toggle('field-hidden');
+      if (saleCajaFloat.classList.contains('field-hidden')) {
+        openSaleCajaModal();
+      } else {
+        closeSaleCajaModal();
+      }
     });
     closeSaleCajaButton.addEventListener('click', () => {
-      saleCajaFloat.classList.add('field-hidden');
+      closeSaleCajaModal();
+    });
+    saleCajaBackdrop?.addEventListener('click', () => {
+      closeSaleCajaModal();
     });
     saleFilterDocumentInput.addEventListener('input', renderSaleRegistro);
     saleFilterCustomerInput.addEventListener('input', renderSaleRegistro);
@@ -8427,10 +8952,10 @@
         return;
       }
 
-      if (payload.paymentMethod === 'transferencia' && !payload.referencia) {
+      if (['transferencia', 'tarjeta', 'tarjeta-credito'].includes(payload.paymentMethod) && !payload.referencia) {
         paymentStatus.className = 'status error';
-        paymentStatus.textContent = 'La referencia es obligatoria para pagos por transferencia.';
-        showError('La referencia es obligatoria para pagos por transferencia.');
+        paymentStatus.textContent = 'La referencia es obligatoria para pagos con tarjeta o transferencia.';
+        showError('La referencia es obligatoria para pagos con tarjeta o transferencia.');
         return;
       }
 
@@ -8495,6 +9020,10 @@
       renderPaymentRegistro();
     });
 
+    if (paymentPendingSearchInput) {
+      paymentPendingSearchInput.addEventListener('input', renderPendingPayments);
+    }
+
     paymentTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.paymentTab;
@@ -8506,13 +9035,26 @@
       });
     });
 
+    function syncFundSummaryCards(tabName) {
+      const activeSummary = tabName === 'bank' ? 'bank' : 'cash';
+      fundOverviewPanel?.querySelectorAll('[data-fund-summary]').forEach(card => {
+        card.classList.toggle('field-hidden', card.dataset.fundSummary !== activeSummary);
+      });
+    }
+
+    syncFundSummaryCards('cash');
+
     fundTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.fundTab;
+        const isOverviewTab = tabName === 'cash' || tabName === 'bank';
         fundTabs.forEach(button => button.classList.toggle('active', button === tab));
-        fundOverviewPanel.classList.toggle('field-hidden', tabName === 'external');
+        fundOverviewPanel.classList.toggle('field-hidden', !isOverviewTab);
+        syncFundSummaryCards(tabName);
+        fundSettingsPanel.classList.toggle('active', tabName === 'settings');
         fundCashPanel.classList.toggle('active', tabName === 'cash');
         fundBankPanel.classList.toggle('active', tabName === 'bank');
+        fundTransfersPanel.classList.toggle('active', tabName === 'transfers');
         fundExternalPanel.classList.toggle('active', tabName === 'external');
       });
     });
@@ -8531,9 +9073,9 @@
           observacion: externalDebtNoteInput.value.trim()
         };
 
-        if (!payload.fecha || !payload.tercero || !payload.concepto || Number.isNaN(payload.originalAmount) || payload.originalAmount <= 0) {
-          setExternalDebtStatus('Completa fecha, tercero, concepto y un monto válido.', { error: true });
-          showError('Completa fecha, tercero, concepto y un monto válido.');
+        if (!payload.fecha || !payload.categoria || !payload.tercero || !payload.concepto || Number.isNaN(payload.originalAmount) || payload.originalAmount <= 0) {
+          setExternalDebtStatus('Completa fecha, clasificación, tercero, concepto y un monto válido.', { error: true });
+          showError('Completa fecha, clasificación, tercero, concepto y un monto válido.');
           return;
         }
 
@@ -8679,6 +9221,12 @@
       paymentCategoryStatus.className = 'status';
       paymentCategoryStatus.textContent = 'Crea aquí el catálogo para clasificar cada pago.';
     });
+
+    if (paymentCategorySearchInput) {
+      paymentCategorySearchInput.addEventListener('input', () => {
+        renderPaymentCategoryList();
+      });
+    }
 
     if (openPaymentReimbursementBatchButton) {
       openPaymentReimbursementBatchButton.addEventListener('click', openPaymentReimbursementModalPanel);

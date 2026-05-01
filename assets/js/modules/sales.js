@@ -15,6 +15,7 @@ export function createSalesModule(context) {
     getLastRecordPayment,
     getNormalizedRecordPaymentHistory,
     getSaleItemTrackedCostSummary,
+    getDateInputValue,
     getTodayInputValue,
     isCashSale,
     isCreditSale,
@@ -154,9 +155,7 @@ export function createSalesModule(context) {
     if (!paymentEntry) return;
     editingSalePaymentEntryId = paymentEntry.id;
     salePayableMethodInput.value = paymentEntry.paymentMethod || 'efectivo';
-    salePayableDateInput.value = paymentEntry.date
-      ? new Date(paymentEntry.date).toISOString().slice(0, 10)
-      : getTodayInputValue();
+    salePayableDateInput.value = getDateInputValue(paymentEntry.date, getTodayInputValue());
     salePayableAmountInput.value = Number(paymentEntry.amount || 0).toFixed(2);
     salePayableReferenceInput.value = paymentEntry.paymentReference || '';
     updateSalePayableReferenceVisibility();
@@ -175,10 +174,8 @@ export function createSalesModule(context) {
     salePayableForm.reset();
     salePayableMethodInput.value = sale?.paymentMethod || 'efectivo';
     salePayableDateInput.value = getLastRecordPayment(sale, totalAmount)?.date
-      ? new Date(getLastRecordPayment(sale, totalAmount).date).toISOString().slice(0, 10)
-      : sale?.fecha
-        ? new Date(sale.fecha).toISOString().slice(0, 10)
-        : getTodayInputValue();
+      ? getDateInputValue(getLastRecordPayment(sale, totalAmount).date, getTodayInputValue())
+      : getDateInputValue(sale?.fecha, getTodayInputValue());
     salePayableReferenceInput.value = sale?.paymentReference || '';
     salePayableAmountInput.value = balanceDue > 0 ? balanceDue.toFixed(2) : totalAmount.toFixed(2);
     const paymentHistory = getNormalizedRecordPaymentHistory(sale, totalAmount);
@@ -259,6 +256,19 @@ export function createSalesModule(context) {
     }
   }
 
+  function compareSalesByDocumentDescending(left, right) {
+    const leftDocument = String(left?.documento || left?.document || '');
+    const rightDocument = String(right?.documento || right?.document || '');
+    const documentComparison = rightDocument.localeCompare(leftDocument, 'es', {
+      sensitivity: 'base',
+      numeric: true
+    });
+    if (documentComparison !== 0) {
+      return documentComparison;
+    }
+    return new Date(right?.fecha || right?.createdAt || 0).getTime() - new Date(left?.fecha || left?.createdAt || 0).getTime();
+  }
+
   function getFilteredSales() {
     const documentFilter = saleFilterDocumentInput.value.trim().toLowerCase();
     const customerFilter = saleFilterCustomerInput.value.trim().toLowerCase();
@@ -286,7 +296,7 @@ export function createSalesModule(context) {
         )
         : true;
       return matchesDocument && matchesCustomer && matchesMethod && matchesStart && matchesEnd && matchesProduct;
-    });
+    }).sort(compareSalesByDocumentDescending);
   }
 
   function buildSaleRegistroRows() {
@@ -298,7 +308,7 @@ export function createSalesModule(context) {
         const total = Number(item.precio || 0) * itemQuantity
           + calculateSaleAddonsTotal(item.adicionales)
           + calculateSaleComponentsTotal(item.componentes, itemQuantity);
-        const costSummary = getSaleItemTrackedCostSummary(item);
+        const costSummary = getSaleItemTrackedCostSummary(item, venta);
         return {
           Factura: venta.documento || '',
           Cliente: venta.cliente || '',
@@ -380,6 +390,19 @@ export function createSalesModule(context) {
     }
   }
 
+  function renderSalePersonalizationDetail(personalizationText) {
+    const normalizedText = String(personalizationText || '').trim();
+    if (!normalizedText || normalizedText.toLowerCase() === 'sin personalizacion') {
+      return '<span class="sale-personalization-empty">Sin personalizacion</span>';
+    }
+    return `
+      <details class="sale-personalization-details">
+        <summary>Ver personalizacion</summary>
+        <div class="sale-personalization-content">${escapeHtml(normalizedText)}</div>
+      </details>
+    `;
+  }
+
   function updateReceivablesDateFilterVisibility() {
     const useRange = receivablesFilterDateModeInput.value === 'range';
     receivablesFilterDateStartField.classList.toggle('field-hidden', !useRange);
@@ -455,7 +478,7 @@ export function createSalesModule(context) {
     }
     saleRecords.innerHTML = `
       <h4>Registro de ventas</h4>
-      <table class="history-table">
+      <table class="history-table history-table-ventas-registro">
         <thead>
           <tr>
             <th>Factura</th>
@@ -465,8 +488,8 @@ export function createSalesModule(context) {
             <th>Método</th>
             <th>Referencia</th>
             <th>Fecha pago</th>
-            <th>Producto</th>
-            <th>Personalización</th>
+            <th class="col-producto">Producto</th>
+            <th class="col-personalizacion">Personalización</th>
             <th>Cantidad</th>
             <th>Precio</th>
             <th>Total</th>
@@ -477,7 +500,7 @@ export function createSalesModule(context) {
           </tr>
         </thead>
         <tbody>
-          ${sales.slice().reverse().flatMap(venta => {
+          ${sales.flatMap(venta => {
             const items = Array.isArray(venta.items) ? venta.items : [{ nombre: venta.nombre, cantidad: venta.cantidad, precio: venta.precio }];
             return items.map(item => {
               const itemQuantity = Number(item.cantidad || 0);
@@ -491,7 +514,7 @@ export function createSalesModule(context) {
               const referenceMarkup = lastPayment
                 ? buildPaymentEntryReceiptMarkup(lastPayment, 'sale-registro-receipt', venta.id)
                 : escapeHtml(venta.paymentReference || '-');
-              const costSummary = getSaleItemTrackedCostSummary(item);
+              const costSummary = getSaleItemTrackedCostSummary(item, venta);
               return `
                 <tr>
                   <td><button type="button" class="invoice-link-btn" data-sale-id="${escapeHtml(String(venta.id || ''))}" title="Ver factura">${escapeHtml(venta.documento || '')}</button></td>
@@ -501,8 +524,8 @@ export function createSalesModule(context) {
                   <td>${escapeHtml(venta.paymentMethod || '')}</td>
                   <td>${referenceMarkup}</td>
                   <td>${venta.paidAt ? formatDate(venta.paidAt) : '-'}</td>
-                  <td>${escapeHtml(item.nombre || '')}</td>
-                  <td>${escapeHtml(personalization)}</td>
+                  <td class="col-producto">${escapeHtml(item.nombre || '')}</td>
+                  <td class="col-personalizacion">${renderSalePersonalizationDetail(personalization)}</td>
                   <td>${Number(item.cantidad || 0)}</td>
                   <td>${formatCurrency(item.precio || 0)}</td>
                   <td>${formatCurrency(total)}</td>

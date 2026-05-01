@@ -4,6 +4,7 @@ export function createSalesComposerModule(context) {
     addSaleExtraButton,
     addSaleLineButton,
     buildOptions,
+    buildPurchaseLinkedOptions,
     buildSaleComponentOptions,
     buildSaleExtraSelectOptions,
     buildToppingOptions,
@@ -12,6 +13,7 @@ export function createSalesComposerModule(context) {
     findProductById,
     findSaleExtraCatalogItem,
     formatCurrency,
+    getPurchaseLinkedTargets,
     getActiveBucketForFlavorId,
     getActiveSauceControlForSauceId,
     getActiveToppingControlForToppingId,
@@ -28,13 +30,22 @@ export function createSalesComposerModule(context) {
     productUsesFreeComponents,
     productUsesRecipe,
     requiresPaymentReference,
+    saleCajaBackdrop,
     saleCajaFloat,
     saleCashChangeText,
     saleCashMethodInput,
+    saleCashMixedCardInput,
+    saleCashMixedCardReferenceInput,
+    saleCashMixedCashInput,
+    saleCashMixedRow,
+    saleCashMixedTransferInput,
+    saleCashMixedTransferReferenceInput,
+    saleCashDraftStatus,
     saleCashReceivedInput,
     saleCashReferenceInput,
     saleCashReferenceRow,
     saleCashTotalText,
+    saveSaleCajaConfigButton,
     saleDueDateField,
     saleDueDateInput,
     saleInfo,
@@ -50,6 +61,98 @@ export function createSalesComposerModule(context) {
   let activeSaleRow = null;
   let saleLineSequence = 0;
   let listenersInstalled = false;
+
+  function parseAmount(value) {
+    const normalized = Number(String(value ?? '').replace(',', '.'));
+    return Number.isNaN(normalized) ? 0 : normalized;
+  }
+
+  function getSaleMixedSnapshot() {
+    return {
+      cash: Math.max(parseAmount(saleCashMixedCashInput?.value), 0),
+      transfer: Math.max(parseAmount(saleCashMixedTransferInput?.value), 0),
+      transferReference: String(saleCashMixedTransferReferenceInput?.value || '').trim(),
+      card: Math.max(parseAmount(saleCashMixedCardInput?.value), 0),
+      cardReference: String(saleCashMixedCardReferenceInput?.value || '').trim(),
+    };
+  }
+
+  function buildSaleMixedReference(snapshot) {
+    const parts = [];
+    if (snapshot.cash > 0) {
+      parts.push(`Efectivo ${formatCurrency(snapshot.cash)}`);
+    }
+    if (snapshot.transfer > 0) {
+      const transferReference = snapshot.transferReference ? ` ref ${snapshot.transferReference}` : '';
+      parts.push(`Transferencia ${formatCurrency(snapshot.transfer)}${transferReference}`);
+    }
+    if (snapshot.card > 0) {
+      const cardReference = snapshot.cardReference ? ` ref ${snapshot.cardReference}` : '';
+      parts.push(`Tarjeta ${formatCurrency(snapshot.card)}${cardReference}`);
+    }
+    return parts.length ? `Mixto: ${parts.join(' | ')}` : '';
+  }
+
+  function setSaleCashDraftMessage(message, isError = false) {
+    if (!saleCashDraftStatus) {
+      return;
+    }
+    saleCashDraftStatus.textContent = message;
+    saleCashDraftStatus.classList.toggle('error-text', Boolean(isError));
+  }
+
+  function resolveSaleCashPayload(totalAmount, { forSubmit = false } = {}) {
+    const paymentMethod = String(saleCashMethodInput?.value || '').trim();
+    const isMixed = paymentMethod === 'mixto';
+
+    if (!isMixed) {
+      const received = parseAmount(saleCashReceivedInput?.value);
+      const reference = String(saleCashReferenceInput?.value || '').trim();
+      if (forSubmit && (Number.isNaN(received) || received < totalAmount)) {
+        return { ok: false, error: 'En contado, el monto recibido debe cubrir el total de la factura.' };
+      }
+      if (forSubmit && requiresPaymentReference(paymentMethod) && !reference) {
+        return { ok: false, error: 'La referencia es obligatoria para tarjeta o transferencia.' };
+      }
+      return {
+        ok: true,
+        cashReceived: received,
+        cashChange: Math.max(received - totalAmount, 0),
+        paymentReference: reference || null,
+        paymentBreakdown: null,
+      };
+    }
+
+    const snapshot = getSaleMixedSnapshot();
+    const totalMixed = snapshot.cash + snapshot.transfer + snapshot.card;
+
+    if (forSubmit && totalMixed <= 0) {
+      return { ok: false, error: 'En método mixto debes indicar al menos un monto mayor a cero.' };
+    }
+    if (forSubmit && totalMixed < totalAmount) {
+      return { ok: false, error: 'El total del detalle mixto debe cubrir el total de la factura.' };
+    }
+    if (forSubmit && snapshot.transfer > 0 && !snapshot.transferReference) {
+      return { ok: false, error: 'Agrega la referencia de transferencia en el detalle mixto.' };
+    }
+    if (forSubmit && snapshot.card > 0 && !snapshot.cardReference) {
+      return { ok: false, error: 'Agrega la referencia de tarjeta en el detalle mixto.' };
+    }
+
+    return {
+      ok: true,
+      cashReceived: totalMixed,
+      cashChange: Math.max(totalMixed - totalAmount, 0),
+      paymentReference: buildSaleMixedReference(snapshot) || null,
+      paymentBreakdown: {
+        efectivo: snapshot.cash,
+        transferencia: snapshot.transfer,
+        transferenciaReferencia: snapshot.transferReference || null,
+        tarjeta: snapshot.card,
+        tarjetaReferencia: snapshot.cardReference || null,
+      },
+    };
+  }
 
   function getSaleLineSelectedFlavors(row) {
     const selectedMap = new Map();
@@ -159,6 +262,7 @@ export function createSalesComposerModule(context) {
 
   function parseSaleExtraLine(row) {
     const nameInput = row.querySelector('.sale-extra-source');
+    const linkSelect = row.querySelector('.sale-extra-link-select');
     const quantityInput = row.querySelector('.sale-quantity');
     const priceInput = row.querySelector('.sale-price');
     const name = String(nameInput?.value || '').trim();
@@ -174,80 +278,78 @@ export function createSalesComposerModule(context) {
 
     const isValid = Boolean(name) && Number.isInteger(quantity) && quantity > 0 && !Number.isNaN(price) && price >= 0;
     const catalogItem = findSaleExtraCatalogItem(name);
-    const catalogProduct = catalogItem?.kind === 'flavor-product' ? findProductById(catalogItem.id) : null;
     const catalogRawMaterial = catalogItem?.kind === 'materia-prima' ? findProductById(catalogItem.id) : null;
-    if (catalogProduct) {
-      const selectedFlavors = getSaleLineSelectedFlavors(row);
-      const expectedScoops = Math.max(Number(catalogProduct.pelotasPorUnidad || 0) * (Number.isNaN(quantity) ? 0 : quantity), 0);
-      const assignedScoops = selectedFlavors.reduce((sum, flavor) => sum + Number(flavor.porciones || 0), 0);
-      const isFlavorItemValid = isValid && selectedFlavors.length > 0 && expectedScoops > 0 && assignedScoops === expectedScoops;
-      return {
-        isEmpty: false,
-        isValid: isFlavorItemValid,
-        addon: null,
-        item: isFlavorItemValid
-          ? {
-              id: catalogProduct.id,
-              nombre: catalogProduct.nombre,
-              cantidad: quantity,
-              precio: price,
-              sabores: selectedFlavors,
-              componentes: [],
-              adicionales: []
-            }
-          : null
-      };
-    }
+    if (catalogRawMaterial && isValid) {
+      const linkedTargets = getPurchaseLinkedTargets(catalogRawMaterial);
+      const selectedLinkRawValue = String(linkSelect?.value || '').trim();
+      const [linkedType = '', linkedId = ''] = selectedLinkRawValue.split(':');
+      const selectedLinkedTarget = linkedId
+        ? linkedTargets.find(target => String(target.type) === linkedType && String(target.id) === linkedId)
+        : null;
+      const requiresLinkedTarget = linkedTargets.length > 0;
+      if (requiresLinkedTarget && !selectedLinkedTarget) {
+        return {
+          isEmpty: false,
+          isValid: false,
+          item: null,
+          addon: null
+        };
+      }
 
-    const matchedTopping = getToppingByName(name);
-    const matchedSauce = !matchedTopping ? getSauceByName(name) : null;
-    const matchedAddon = matchedTopping || matchedSauce;
-    const hasActiveControlForMatchedAddon = matchedTopping
-      ? Boolean(getActiveToppingControlForToppingId(matchedTopping.id))
-      : matchedSauce
-        ? Boolean(getActiveSauceControlForSauceId(matchedSauce.id))
-        : true;
-    const hasStockForMatchedAddon = matchedTopping
-      ? getToppingAvailableStock(matchedTopping.id) >= quantity
-      : matchedSauce
-        ? getSauceAvailableStock(matchedSauce.id) >= quantity
-        : true;
-    const isAddonValid = isValid && hasStockForMatchedAddon;
-    if (catalogRawMaterial && isValid && !matchedAddon) {
+      const flavorId = selectedLinkedTarget?.type === 'flavor' ? String(selectedLinkedTarget.id) : null;
+      const flavorName = selectedLinkedTarget?.type === 'flavor' ? String(selectedLinkedTarget.name) : null;
+      const toppingId = selectedLinkedTarget?.type === 'topping' ? String(selectedLinkedTarget.id) : null;
+      const toppingName = selectedLinkedTarget?.type === 'topping' ? String(selectedLinkedTarget.name) : null;
+      const sauceId = selectedLinkedTarget?.type === 'sauce' ? String(selectedLinkedTarget.id) : null;
+      const sauceName = selectedLinkedTarget?.type === 'sauce' ? String(selectedLinkedTarget.name) : null;
+      const hasStockForLinkedTarget = flavorId
+        ? true
+        : toppingId
+          ? getToppingAvailableStock(toppingId) >= quantity
+          : sauceId
+            ? getSauceAvailableStock(sauceId) >= quantity
+            : true;
+      const hasActiveControlForLinkedTarget = flavorId
+        ? true
+        : toppingId
+          ? Boolean(getActiveToppingControlForToppingId(toppingId))
+          : sauceId
+            ? Boolean(getActiveSauceControlForSauceId(sauceId))
+            : true;
+      const isRawMaterialValid = Number(catalogRawMaterial.stock || 0) >= quantity;
+      const isAddonValid = isRawMaterialValid && hasStockForLinkedTarget && hasActiveControlForLinkedTarget;
       return {
         isEmpty: false,
-        isValid: Number(catalogRawMaterial.stock || 0) >= quantity,
+        isValid: isAddonValid,
         item: null,
-        addon: Number(catalogRawMaterial.stock || 0) >= quantity
+        addon: isAddonValid
           ? {
-              id: null,
+              id: toppingId || sauceId || null,
               tipo: 'extra',
               nombre: catalogRawMaterial.nombre,
               cantidad: quantity,
               precio: price,
-              addonCategory: 'materia-prima',
+              addonCategory: toppingId ? 'topping' : sauceId ? 'sauce' : 'materia-prima',
               materiaPrimaId: catalogRawMaterial.id,
-              materiaPrimaNombre: catalogRawMaterial.nombre
+              materiaPrimaNombre: catalogRawMaterial.nombre,
+              flavorId,
+              flavorName,
+              toppingId,
+              toppingName,
+              sauceId,
+              sauceName,
+              linkedType: selectedLinkedTarget?.type || null,
+              linkedId: selectedLinkedTarget?.id || null,
+              linkedName: selectedLinkedTarget?.name || null
             }
           : null
       };
     }
     return {
       isEmpty: false,
-      isValid: isAddonValid && hasActiveControlForMatchedAddon,
+      isValid: false,
       item: null,
-      addon: isAddonValid && hasActiveControlForMatchedAddon
-        ? {
-            id: matchedAddon ? matchedAddon.id : null,
-            tipo: 'extra',
-            nombre: name,
-            cantidad: quantity,
-            precio: price,
-            addonCategory: matchedTopping ? 'topping' : matchedSauce ? 'sauce' : null,
-            materiaPrimaId: matchedAddon ? matchedAddon.materiaPrimaId : null,
-            materiaPrimaNombre: matchedAddon ? matchedAddon.materiaPrimaNombre : null
-          }
-        : null
+      addon: null
     };
   }
 
@@ -336,6 +438,11 @@ export function createSalesComposerModule(context) {
       const priceInput = componentRow.querySelector('.sale-component-price');
       const id = String(select?.value || '');
       const nombre = select?.selectedOptions?.[0]?.dataset.name || '';
+      const selectedOption = select?.selectedOptions?.[0] || null;
+      const sourceCategory = String(selectedOption?.dataset.sourceCategory || 'producto');
+      const sourceId = String(selectedOption?.dataset.sourceId || id);
+      const materiaPrimaId = String(selectedOption?.dataset.materiaPrimaId || '');
+      const materiaPrimaNombre = String(selectedOption?.dataset.materiaPrimaNombre || '');
       const cantidad = Number(amountInput?.value);
       const precio = String(priceInput?.value || '').trim() === '' ? 0 : Number(priceInput?.value);
 
@@ -343,7 +450,16 @@ export function createSalesComposerModule(context) {
         return;
       }
 
-      const existing = selectedMap.get(id) || { id, nombre, cantidad: 0, precio };
+      const existing = selectedMap.get(id) || {
+        id,
+        nombre,
+        cantidad: 0,
+        precio,
+        sourceCategory,
+        sourceId,
+        materiaPrimaId: materiaPrimaId || null,
+        materiaPrimaNombre: materiaPrimaNombre || null
+      };
       existing.cantidad += cantidad;
       existing.precio = Math.max(Number(existing.precio || 0), precio);
       selectedMap.set(id, existing);
@@ -550,7 +666,7 @@ export function createSalesComposerModule(context) {
         ${buildSaleComponentOptions(component.id || '')}
       </select>
       <input type="number" class="sale-component-amount" min="0.01" step="0.01" placeholder="Cant. por unidad" value="${component.cantidad !== undefined ? escapeHtml(component.cantidad) : ''}" />
-      <input type="number" class="sale-component-price" min="0" step="0.01" placeholder="Extra C$" value="${component.precio !== undefined ? escapeHtml(component.precio) : ''}" />
+      <input type="hidden" class="sale-component-price" value="0" />
       <button type="button" class="secondary-btn remove-sale-component-row">Quitar</button>
     `;
     rowsContainer.appendChild(componentRow);
@@ -623,35 +739,46 @@ export function createSalesComposerModule(context) {
     syncSaleFlavorSummary(row);
   }
 
-  function updateSaleExtraFlavorSection(row) {
+  function updateSaleExtraLinkedField(row) {
     if (!isSaleExtraLineRow(row)) return;
-    const flavorField = row.querySelector('.sale-extra-flavor-field');
-    const flavorRows = row.querySelector('.sale-flavor-rows');
-    if (!flavorField || !flavorRows) return;
+    const linkField = row.querySelector('.sale-extra-link-field');
+    const linkSelect = row.querySelector('.sale-extra-link-select');
+    const linkLabel = row.querySelector('.sale-extra-link-label');
+    if (!linkField || !linkSelect) return;
 
     const sourceInput = row.querySelector('.sale-extra-source');
     const catalogItem = findSaleExtraCatalogItem(sourceInput?.value);
-    const catalogProduct = catalogItem?.kind === 'flavor-product' ? findProductById(catalogItem.id) : null;
-    const shouldShowFlavors = Boolean(catalogProduct) && productUsesFlavors(catalogProduct);
-    const previousProductId = row.dataset.extraFlavorProductId || '';
-    const nextProductId = shouldShowFlavors ? String(catalogProduct.id || '') : '';
+    const catalogRawMaterial = catalogItem?.kind === 'materia-prima' ? findProductById(catalogItem.id) : null;
+    const linkedTargets = catalogRawMaterial ? getPurchaseLinkedTargets(catalogRawMaterial) : [];
+    const shouldShowLinkedTarget = linkedTargets.length > 0;
+    const previousRawMaterialId = row.dataset.extraRawMaterialId || '';
+    const nextRawMaterialId = catalogRawMaterial ? String(catalogRawMaterial.id || '') : '';
+    const currentValue = previousRawMaterialId === nextRawMaterialId ? String(linkSelect.value || '') : '';
 
-    if (previousProductId !== nextProductId) {
-      flavorRows.innerHTML = '';
+    if (linkLabel) {
+      if (!catalogRawMaterial) {
+        linkLabel.textContent = 'Asignar a';
+      } else if (linkedTargets.length === 1) {
+        const type = String(linkedTargets[0].type || '').trim().toLowerCase();
+        linkLabel.textContent = type === 'flavor' ? 'Sabor' : type === 'topping' ? 'Topping' : type === 'sauce' ? 'Salsa / aderezo' : 'Asignar a';
+      } else {
+        linkLabel.textContent = 'Asignar a';
+      }
     }
-    row.dataset.extraFlavorProductId = nextProductId;
-    flavorField.classList.toggle('field-hidden', !shouldShowFlavors);
-    flavorField.hidden = !shouldShowFlavors;
 
-    if (shouldShowFlavors && !flavorRows.querySelector('.sale-flavor-row') && row.classList.contains('is-editing')) {
-      addSaleFlavorRow(row);
+    row.dataset.extraRawMaterialId = nextRawMaterialId;
+    linkField.classList.toggle('field-hidden', !shouldShowLinkedTarget);
+    linkField.hidden = !shouldShowLinkedTarget;
+    linkSelect.required = shouldShowLinkedTarget;
+    if (shouldShowLinkedTarget && catalogRawMaterial) {
+      const [selectedType = '', selectedId = ''] = currentValue.split(':');
+      linkSelect.innerHTML = buildPurchaseLinkedOptions(catalogRawMaterial.id, selectedType, selectedId);
+      linkSelect.value = currentValue;
+    } else {
+      linkSelect.innerHTML = '<option value="">Sin vínculos</option>';
+      linkSelect.value = '';
     }
-
-    flavorRows.querySelectorAll('.sale-flavor-row').forEach(flavorRow => {
-      flavorRow.querySelector('.sale-flavor-select').disabled = !row.classList.contains('is-editing');
-      flavorRow.querySelector('.sale-flavor-amount').disabled = !row.classList.contains('is-editing');
-      flavorRow.querySelector('.remove-sale-flavor-row').disabled = !row.classList.contains('is-editing');
-    });
+    linkSelect.disabled = !shouldShowLinkedTarget || !row.classList.contains('is-editing');
   }
 
   function updateSaleRowFlavorSection(row) {
@@ -669,12 +796,14 @@ export function createSalesComposerModule(context) {
     const addAddonButton = row.querySelector('.add-sale-addon-row');
     const addSauceAddonButton = row.querySelector('.add-sale-sauce-addon-row');
     const producto = findProductById(select.value);
-    const shouldShowComponents = Boolean(producto) && productUsesFreeComponents(producto);
-    const shouldShowCustomization = Boolean(producto) && (shouldShowComponents || productUsesFlavors(producto) || productUsesRecipe(producto));
+    const selectedLabel = String(select.selectedOptions?.[0]?.textContent || '');
+    const looksLikeFreeCustomization = /personalizado\s*libre/i.test(selectedLabel);
+    const shouldShowComponents = Boolean(producto) && (productUsesFreeComponents(producto) || looksLikeFreeCustomization);
+    const shouldShowCustomization = Boolean(producto) && (shouldShowComponents || productUsesFlavors(producto) || productUsesRecipe(producto) || looksLikeFreeCustomization);
     const shouldShowFlavors = Boolean(producto) && productUsesFlavors(producto);
 
     flavorField.classList.toggle('field-hidden', !shouldShowCustomization);
-    flavorToggleButton.classList.toggle('field-hidden', !shouldShowCustomization);
+    flavorToggleButton.classList.remove('field-hidden');
     if (!shouldShowCustomization) {
       row.dataset.flavorEditorOpen = 'false';
       componentRows.innerHTML = '';
@@ -694,9 +823,8 @@ export function createSalesComposerModule(context) {
     flavorSection.hidden = !shouldShowFlavors;
     flavorSection.style.display = shouldShowFlavors ? '' : 'none';
 
-    if (!shouldShowFlavors || shouldShowComponents) {
+    if (!shouldShowFlavors) {
       flavorRows.innerHTML = '';
-      row.dataset.flavorEditorOpen = row.classList.contains('is-editing') ? 'true' : 'false';
     }
 
     if (!row.dataset.flavorEditorOpen) {
@@ -765,6 +893,10 @@ export function createSalesComposerModule(context) {
     if (isSaleExtraLineRow(row)) {
       row.classList.toggle('is-editing', isEditing);
       row.querySelector('.sale-extra-source').disabled = false;
+      const linkedTargetSelect = row.querySelector('.sale-extra-link-select');
+      if (linkedTargetSelect) {
+        linkedTargetSelect.disabled = !isEditing || linkedTargetSelect.closest('.sale-extra-link-field')?.classList.contains('field-hidden');
+      }
       row.querySelector('.sale-quantity').disabled = false;
       row.querySelector('.sale-price').disabled = false;
       const toggleButton = row.querySelector('.toggle-sale-line');
@@ -772,7 +904,7 @@ export function createSalesComposerModule(context) {
       toggleButton.title = isEditing ? 'Guardar extra' : 'Editar extra';
       toggleButton.setAttribute('aria-label', isEditing ? 'Guardar extra' : 'Editar extra');
       syncSearchablePickerTrigger(row.querySelector('.sale-extra-source'));
-      updateSaleExtraFlavorSection(row);
+      updateSaleExtraLinkedField(row);
       return;
     }
     row.classList.toggle('is-editing', isEditing);
@@ -801,6 +933,12 @@ export function createSalesComposerModule(context) {
         <select class="sale-extra-source" required>
           ${buildSaleExtraSelectOptions(addon.nombre || '')}
         </select>
+        <div class="field sale-extra-link-field field-hidden" hidden>
+          <label class="sale-extra-link-label">Asignar a</label>
+          <select class="sale-extra-link-select">
+            <option value="">Selecciona una opción</option>
+          </select>
+        </div>
       </div>
       <div class="field">
         <input type="number" class="sale-quantity" min="1" step="1" placeholder="Ej. 1" value="${addon.cantidad ?? ''}" required />
@@ -817,26 +955,14 @@ export function createSalesComposerModule(context) {
           <button type="button" class="delete-product action-icon-btn remove-sale-line" title="Eliminar extra" aria-label="Eliminar extra">🗑</button>
         </div>
       </div>
-      <div class="field sale-extra-flavor-field field-hidden" hidden>
-        <div class="sale-customization-section">
-          <div class="sale-customization-section-header">
-            <strong>Sabores del extra</strong>
-            <span>Elige los sabores para descontar del balde correcto.</span>
-          </div>
-          <div class="sale-flavor-rows"></div>
-          <div class="sale-flavor-editor-actions">
-            <button type="button" class="secondary-btn add-sale-flavor-row">Agregar sabor</button>
-          </div>
-        </div>
-      </div>
     `;
 
     const sourceInput = row.querySelector('.sale-extra-source');
+    const linkedTargetSelect = row.querySelector('.sale-extra-link-select');
     const quantityInput = row.querySelector('.sale-quantity');
     const priceInput = row.querySelector('.sale-price');
     const toggleButton = row.querySelector('.toggle-sale-line');
     const removeButton = row.querySelector('.remove-sale-line');
-    const addFlavorButton = row.querySelector('.add-sale-flavor-row');
     initializeSearchableProductPickers(row);
 
     function syncExtraCatalogSelection() {
@@ -844,7 +970,7 @@ export function createSalesComposerModule(context) {
       if (!catalogItem) {
         row.dataset.extraCatalogName = '';
         row.dataset.extraAutoPrice = '';
-        updateSaleExtraFlavorSection(row);
+        updateSaleExtraLinkedField(row);
         updateSaleRowTotal(row);
         renderSaleInfo();
         return;
@@ -861,7 +987,7 @@ export function createSalesComposerModule(context) {
       if (shouldReplacePrice) {
         priceInput.value = nextAutoPrice;
       }
-      updateSaleExtraFlavorSection(row);
+      updateSaleExtraLinkedField(row);
       updateSaleRowTotal(row);
       renderSaleInfo();
     }
@@ -875,8 +1001,12 @@ export function createSalesComposerModule(context) {
     });
 
     sourceInput.addEventListener('change', syncExtraCatalogSelection);
+    linkedTargetSelect.addEventListener('change', () => {
+      updateSaleRowTotal(row);
+      renderSaleInfo();
+    });
     quantityInput.addEventListener('input', () => {
-      updateSaleExtraFlavorSection(row);
+      updateSaleExtraLinkedField(row);
       updateSaleRowTotal(row);
       renderSaleInfo();
     });
@@ -886,12 +1016,6 @@ export function createSalesComposerModule(context) {
     });
     priceInput.addEventListener('blur', () => normalizeMoneyInputValue(priceInput));
     priceInput.addEventListener('blur', () => updateSaleRowTotal(row));
-    addFlavorButton.addEventListener('click', () => {
-      setActiveSaleRow(row);
-      addSaleFlavorRow(row);
-      updateSaleExtraFlavorSection(row);
-      renderSaleInfo();
-    });
     toggleButton.addEventListener('click', () => {
       const isEditing = row.classList.contains('is-editing');
       if (isEditing) {
@@ -899,7 +1023,7 @@ export function createSalesComposerModule(context) {
         if (!parsed.addon && !parsed.item) {
           if (saleStatus) {
             saleStatus.className = 'status error';
-            saleStatus.textContent = 'Completa el extra. Si es helado por sabores, asigna sus sabores exactos antes de guardarlo.';
+            saleStatus.textContent = 'Completa el extra. Si la materia prima está vinculada, debes elegir su sabor, topping o salsa/aderezo.';
           }
           return;
         }
@@ -949,7 +1073,7 @@ export function createSalesComposerModule(context) {
       <div class="field">
         <div class="purchase-row-actions">
           <button type="button" class="secondary-btn action-icon-btn toggle-sale-line" title="Guardar fila" aria-label="Guardar fila">✓</button>
-          <button type="button" class="secondary-btn action-icon-btn toggle-sale-flavor-editor field-hidden" title="Abrir personalizacion" aria-label="Abrir personalizacion">⚙</button>
+          <button type="button" class="secondary-btn action-icon-btn toggle-sale-flavor-editor" title="Abrir personalizacion" aria-label="Abrir personalizacion">⚙</button>
           <button type="button" class="delete-product action-icon-btn remove-sale-line" title="Eliminar fila" aria-label="Eliminar fila">🗑</button>
         </div>
       </div>
@@ -965,8 +1089,8 @@ export function createSalesComposerModule(context) {
           <div class="sale-flavor-summary sale-flavor-modal-summary"></div>
           <div class="sale-customization-section sale-component-section field-hidden">
             <div class="sale-customization-section-header">
-              <strong>Componentes libres</strong>
-              <span>El cliente elige todo; no hay base obligatoria.</span>
+              <strong>Materia prima</strong>
+              <span>Consume materia prima directa sin precio extra obligatorio.</span>
             </div>
             <div class="sale-component-rows"></div>
             <div class="sale-flavor-editor-actions">
@@ -1167,6 +1291,7 @@ export function createSalesComposerModule(context) {
         const currentValue = select.value;
         select.innerHTML = buildSaleExtraSelectOptions(currentValue);
         select.value = currentValue;
+        updateSaleExtraLinkedField(row);
         syncSearchablePickerTrigger(select);
         return;
       }
@@ -1186,19 +1311,31 @@ export function createSalesComposerModule(context) {
 
   function updateSaleCashReconciliation() {
     const totalAmount = calculateSaleTotalAmount();
-    const received = Number(saleCashReceivedInput.value);
-    const safeReceived = Number.isNaN(received) ? 0 : received;
+    const cashPayload = resolveSaleCashPayload(totalAmount);
+    const safeReceived = cashPayload.ok ? Number(cashPayload.cashReceived || 0) : 0;
+    if (saleCashMethodInput?.value === 'mixto' && saleCashReceivedInput) {
+      saleCashReceivedInput.value = safeReceived > 0 ? safeReceived.toFixed(2) : '';
+    }
     const change = Math.max(safeReceived - totalAmount, 0);
     saleCashTotalText.textContent = formatCurrency(totalAmount);
     saleCashChangeText.textContent = formatCurrency(change);
   }
 
   function updateSaleReferenceVisibility() {
-    const shouldShowReference = requiresPaymentReference(saleCashMethodInput.value);
+    const isMixed = saleCashMethodInput.value === 'mixto';
+    const shouldShowReference = !isMixed && requiresPaymentReference(saleCashMethodInput.value);
     saleCashReferenceRow.classList.toggle('field-hidden', !shouldShowReference);
+    saleCashMixedRow?.classList.toggle('field-hidden', !isMixed);
     saleCashReferenceInput.required = shouldShowReference;
     if (!shouldShowReference) {
       saleCashReferenceInput.value = '';
+    }
+    if (!isMixed) {
+      if (saleCashMixedCashInput) saleCashMixedCashInput.value = '';
+      if (saleCashMixedTransferInput) saleCashMixedTransferInput.value = '';
+      if (saleCashMixedTransferReferenceInput) saleCashMixedTransferReferenceInput.value = '';
+      if (saleCashMixedCardInput) saleCashMixedCardInput.value = '';
+      if (saleCashMixedCardReferenceInput) saleCashMixedCardReferenceInput.value = '';
     }
   }
 
@@ -1231,10 +1368,13 @@ export function createSalesComposerModule(context) {
     if (paymentType === 'contado') {
       const selectedMethod = saleCashMethodInput.value || 'sin metodo';
       openSaleCajaButton.classList.remove('field-hidden');
-      salePaymentSummary.textContent = `Contado activo: ${selectedMethod}. Abre CAJA para cuadre.`;
+      salePaymentSummary.textContent = selectedMethod === 'mixto'
+        ? 'Contado activo: mixto. Define el desglose en CAJA y pulsa Guardar.'
+        : `Contado activo: ${selectedMethod}. Abre CAJA para cuadre.`;
     } else {
       openSaleCajaButton.classList.add('field-hidden');
       saleCajaFloat.classList.add('field-hidden');
+      saleCajaBackdrop?.classList.add('field-hidden');
       salePaymentSummary.textContent = 'Venta a credito: define fecha de vencimiento.';
     }
     updateSaleReferenceVisibility();
@@ -1251,7 +1391,8 @@ export function createSalesComposerModule(context) {
       const editingRow = Array.from(saleLines.querySelectorAll('.purchase-row')).find(row => row.classList.contains('is-editing'));
       if (editingRow) {
         if (isSaleExtraLineRow(editingRow)) {
-          if (!parseSaleExtraLine(editingRow).addon) {
+          const parsedExtra = parseSaleExtraLine(editingRow);
+          if (!parsedExtra.addon && !parsedExtra.item) {
             if (saleStatus) {
               saleStatus.className = 'status error';
               saleStatus.textContent = 'Completa el extra actual antes de agregar otro producto.';
@@ -1301,8 +1442,30 @@ export function createSalesComposerModule(context) {
     saleCashMethodInput.addEventListener('change', () => {
       updateSaleReferenceVisibility();
       updateSalePaymentSection();
+      setSaleCashDraftMessage('Actualiza los datos de CAJA y pulsa Guardar para confirmar.', false);
     });
     saleCashReceivedInput.addEventListener('input', () => updateSaleCashReconciliation());
+    [saleCashMixedCashInput, saleCashMixedTransferInput, saleCashMixedCardInput].forEach(input => {
+      input?.addEventListener('input', () => {
+        updateSaleCashReconciliation();
+        setSaleCashDraftMessage('Cambios pendientes en CAJA. Pulsa Guardar para confirmar.', false);
+      });
+    });
+    [saleCashMixedTransferReferenceInput, saleCashMixedCardReferenceInput, saleCashReferenceInput].forEach(input => {
+      input?.addEventListener('input', () => {
+        setSaleCashDraftMessage('Cambios pendientes en CAJA. Pulsa Guardar para confirmar.', false);
+      });
+    });
+    saveSaleCajaConfigButton?.addEventListener('click', () => {
+      const totalAmount = calculateSaleTotalAmount();
+      const payload = resolveSaleCashPayload(totalAmount, { forSubmit: true });
+      if (!payload.ok) {
+        setSaleCashDraftMessage(payload.error, true);
+        return;
+      }
+      setSaleCashDraftMessage('Datos de CAJA guardados para esta venta.', false);
+      updateSaleCashReconciliation();
+    });
     saleDueDateInput?.addEventListener('change', () => updateSalePaymentSection());
   }
 
@@ -1325,6 +1488,7 @@ export function createSalesComposerModule(context) {
     updateSalePaymentSection,
     updateSaleCashReconciliation,
     updateSaleReferenceVisibility,
+    resolveSaleCashPayload,
     closeActiveSaleCustomizationEditor,
     installListeners,
   };

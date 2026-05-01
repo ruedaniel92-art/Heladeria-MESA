@@ -7,7 +7,6 @@
   <link rel="stylesheet" href="/assets/css/app.css" />
 </head>
 <body class="auth-locked">
-  <div id="environment-indicator" class="environment-indicator is-loading">Detectando entorno...</div>
   <div id="auth-shell" class="auth-shell">
     <div class="auth-card">
       <section class="auth-hero">
@@ -89,7 +88,10 @@
       <div class="module-layout">
         <aside class="sidebar" id="app-sidebar">
           <div class="sidebar-brand sidebar-brand-row">
-            <h1>Heladería MESA</h1>
+            <div class="sidebar-brand-copy">
+              <h1>Heladería MESA</h1>
+              <div id="environment-indicator" class="environment-indicator is-loading">Detectando entorno...</div>
+            </div>
             <button type="button" id="mobile-nav-close" class="secondary-btn mobile-nav-close" aria-label="Cerrar menú">×</button>
           </div>
           <div class="module-nav" role="tablist">
@@ -103,13 +105,17 @@
             <button class="module-tab" data-tab="inventario">Inventarios</button>
             <button class="module-tab field-hidden" data-tab="seguridad">Seguridad</button>
           </div>
-          <div class="sidebar-session">
-            <span class="sidebar-session-label">Sesión activa</span>
-            <strong id="session-user-name" class="sidebar-session-user">Sin sesión</strong>
-            <span id="session-user-meta" class="sidebar-session-meta">Acceso restringido</span>
+          <div class="sidebar-controls">
+            <div class="sidebar-session">
+              <span class="sidebar-session-label">Sesión activa</span>
+              <strong id="session-user-name" class="sidebar-session-user">Sin sesión</strong>
+              <span id="session-user-meta" class="sidebar-session-meta">Acceso restringido</span>
+            </div>
+            <div class="sidebar-actions">
+              <button type="button" id="logout-button" class="secondary-btn">Cerrar sesión</button>
+              <button type="button" id="theme-toggle" class="secondary-btn theme-toggle" aria-label="Cambiar tema" title="Cambiar tema">🌙</button>
+            </div>
           </div>
-          <button type="button" id="logout-button" class="secondary-btn">Cerrar sesión</button>
-          <button type="button" id="theme-toggle" class="secondary-btn theme-toggle">Modo oscuro</button>
         </aside>
 
         <main class="module-main">
@@ -458,6 +464,7 @@
                     <p id="purchase-payment-summary">Contado activo. Abre CAJA para hacer el cuadre.</p>
                   </div>
 
+                  <div id="purchase-caja-backdrop" class="purchase-caja-backdrop field-hidden" aria-hidden="true"></div>
                   <div class="purchase-caja-float field-hidden" id="purchase-caja-float">
                     <div class="purchase-caja-header">
                       <h4>Cuadre de caja</h4>
@@ -493,8 +500,34 @@
                             <input type="text" id="cash-reference" placeholder="No. referencia" />
                           </td>
                         </tr>
+                        <tr id="cash-mixed-row" class="field-hidden">
+                          <th>Detalle mixto</th>
+                          <td>
+                            <div class="cash-mixed-grid">
+                              <label>Efectivo
+                                <input type="number" id="cash-mixed-cash" min="0" step="0.01" placeholder="0.00" />
+                              </label>
+                              <label>Transferencia
+                                <input type="number" id="cash-mixed-transfer" min="0" step="0.01" placeholder="0.00" />
+                              </label>
+                              <label>Ref. transferencia
+                                <input type="text" id="cash-mixed-transfer-reference" placeholder="Ref. transferencia" />
+                              </label>
+                              <label>Tarjeta
+                                <input type="number" id="cash-mixed-card" min="0" step="0.01" placeholder="0.00" />
+                              </label>
+                              <label>Ref. tarjeta
+                                <input type="text" id="cash-mixed-card-reference" placeholder="Ref. tarjeta" />
+                              </label>
+                            </div>
+                          </td>
+                        </tr>
                       </tbody>
                     </table>
+                    <div class="actions purchase-form-actions cash-modal-actions">
+                      <button type="button" id="save-caja-config" class="secondary-btn">Guardar</button>
+                    </div>
+                    <p id="cash-draft-status" class="field-help cash-draft-status">Completa los campos y guarda para confirmar el cuadre.</p>
                   </div>
                   <div class="field">
                     <label>Productos</label>
@@ -502,7 +535,6 @@
                       <span>Total de la factura:</span>
                       <div class="purchase-summary-actions">
                         <strong id="purchase-total">C$0,00</strong>
-                        <button type="button" class="secondary-btn" id="add-purchase-line">Nuevo producto</button>
                       </div>
                     </div>
                     <div class="purchase-table-header">
@@ -515,6 +547,7 @@
                     <div id="purchase-lines" class="purchase-lines"></div>
                   </div>
                   <div class="actions purchase-form-actions">
+                    <button type="button" id="add-purchase-line" class="secondary-btn line-action-btn line-action-product" title="Agregar producto">+ Producto</button>
                     <button type="button" id="open-caja" class="secondary-btn">CAJA</button>
                     <button type="submit">Registrar compra</button>
                   </div>
@@ -683,7 +716,7 @@
                     </div>
                     <div class="field sale-field-customer">
                       <label for="sale-customer">Cliente</label>
-                      <input type="text" id="sale-customer" placeholder="Ej. Juan Perez" required />
+                      <input type="text" id="sale-customer" value="Cliente de contado" placeholder="Cliente de contado" required />
                     </div>
                     <div class="field sale-field-date">
                       <label for="sale-date">Fecha</label>
@@ -704,6 +737,7 @@
 
                   <p id="sale-payment-summary">Contado activo. Abre CAJA para hacer el cuadre.</p>
 
+                  <div id="sale-caja-backdrop" class="purchase-caja-backdrop field-hidden" aria-hidden="true"></div>
                   <div class="purchase-caja-float field-hidden" id="sale-caja-float">
                     <div class="purchase-caja-header">
                       <h4>Cuadre de caja venta</h4>
@@ -739,8 +773,34 @@
                           <th>Referencia</th>
                           <td><input type="text" id="sale-cash-reference" placeholder="No. referencia" /></td>
                         </tr>
+                        <tr id="sale-cash-mixed-row" class="field-hidden">
+                          <th>Detalle mixto</th>
+                          <td>
+                            <div class="cash-mixed-grid">
+                              <label>Efectivo
+                                <input type="number" id="sale-cash-mixed-cash" min="0" step="0.01" placeholder="0.00" />
+                              </label>
+                              <label>Transferencia
+                                <input type="number" id="sale-cash-mixed-transfer" min="0" step="0.01" placeholder="0.00" />
+                              </label>
+                              <label>Ref. transferencia
+                                <input type="text" id="sale-cash-mixed-transfer-reference" placeholder="Ref. transferencia" />
+                              </label>
+                              <label>Tarjeta
+                                <input type="number" id="sale-cash-mixed-card" min="0" step="0.01" placeholder="0.00" />
+                              </label>
+                              <label>Ref. tarjeta
+                                <input type="text" id="sale-cash-mixed-card-reference" placeholder="Ref. tarjeta" />
+                              </label>
+                            </div>
+                          </td>
+                        </tr>
                       </tbody>
                     </table>
+                    <div class="actions purchase-form-actions cash-modal-actions">
+                      <button type="button" id="save-sale-caja-config" class="secondary-btn">Guardar</button>
+                    </div>
+                    <p id="sale-cash-draft-status" class="field-help cash-draft-status">Completa los campos y guarda para confirmar el cuadre.</p>
                   </div>
 
                   <div class="field">
@@ -749,8 +809,6 @@
                       <span>Total de la factura:</span>
                       <div class="purchase-summary-actions">
                         <strong id="sale-total">C$0,00</strong>
-                        <button type="button" class="secondary-btn" id="add-sale-line">Nuevo producto</button>
-                        <button type="button" class="secondary-btn" id="add-sale-extra">Agregar extra / salsa</button>
                       </div>
                     </div>
                     <div class="purchase-table-header">
@@ -764,6 +822,8 @@
                     <datalist id="sale-extra-catalog"></datalist>
                   </div>
                   <div class="actions purchase-form-actions">
+                    <button type="button" id="add-sale-line" class="secondary-btn line-action-btn line-action-product" title="Agregar producto">+ Producto</button>
+                    <button type="button" id="add-sale-extra" class="secondary-btn line-action-btn line-action-extra" title="Agregar extra o salsa">+ Extra</button>
                     <button type="button" id="open-sale-caja" class="secondary-btn">CAJA</button>
                     <button type="submit">Registrar venta</button>
                   </div>
@@ -1017,6 +1077,10 @@
               <div id="payment-pending" class="purchase-subpanel">
                 <h3>Pagos pendientes por tarjeta</h3>
                 <p class="field-help">Estos pagos quedan pendientes hasta que registres el reembolso por transferencia.</p>
+                <div class="field" style="margin-bottom: 12px;">
+                  <label for="payment-pending-search">Buscar pendiente</label>
+                  <input type="search" id="payment-pending-search" placeholder="Buscar por descripción, beneficiario, clasificación o referencia" autocomplete="off" />
+                </div>
                 <div class="actions">
                   <button type="button" id="open-payment-reimbursement-batch" class="secondary-btn">Registrar transferencia seleccionada</button>
                 </div>
@@ -1042,6 +1106,10 @@
                   </div>
                 </form>
                 <p class="status" id="payment-category-status">Crea aquí el catálogo para clasificar cada pago.</p>
+                <div class="field" style="margin-top: 14px;">
+                  <label for="payment-category-search">Buscar clasificación</label>
+                  <input type="search" id="payment-category-search" placeholder="Buscar por nombre o descripción" autocomplete="off" />
+                </div>
                 <div id="payment-category-list" class="purchase-history"></div>
               </div>
             </div>
@@ -1085,53 +1153,97 @@
               <div class="purchase-tabs">
                 <button type="button" class="fund-tab purchase-tab active" data-fund-tab="cash">Efectivo</button>
                 <button type="button" class="fund-tab purchase-tab" data-fund-tab="bank">Bancos</button>
+                <button type="button" class="fund-tab purchase-tab" data-fund-tab="transfers">Traslados</button>
+                <button type="button" class="fund-tab purchase-tab" data-fund-tab="settings">Configuración</button>
                 <button type="button" class="fund-tab purchase-tab" data-fund-tab="external">Deudas externas</button>
               </div>
 
               <div id="fund-overview-panel">
                 <div class="summary-grid" style="margin-bottom: 20px;">
-                  <div class="summary-card">
+                  <div class="summary-card" data-fund-summary="cash">
                     <strong id="fund-cash-balance">C$0,00</strong>
                     <span>Saldo en efectivo</span>
                   </div>
-                  <div class="summary-card">
+                  <div class="summary-card" data-fund-summary="cash">
                     <strong id="fund-cash-minimum">C$0,00</strong>
                     <span>Fondo mínimo de caja</span>
                   </div>
-                  <div class="summary-card">
+                  <div class="summary-card" data-fund-summary="cash">
                     <strong id="fund-cash-available">C$0,00</strong>
                     <span>Disponible sobre mínimo</span>
                   </div>
-                  <div class="summary-card">
+                  <div class="summary-card field-hidden" data-fund-summary="bank">
                     <strong id="fund-bank-balance">C$0,00</strong>
                     <span>Saldo en bancos</span>
                   </div>
                 </div>
 
-                <p class="field-help" id="fund-cash-reserve-note">Define el fondo mínimo de caja y los saldos iniciales para controlar cuánto efectivo puedes mover sin quedarte corto para vueltos.</p>
-
-                <form id="fund-settings-form" autocomplete="off" style="margin-bottom: 20px;">
-                  <h3>Configuración base</h3>
-                  <div class="form-grid sale-form-grid">
+                <div id="fund-cash-panel" class="purchase-subpanel active">
+                  <h3>Movimientos de efectivo</h3>
+                  <p class="field-help">Entradas en caja por ventas en efectivo y salidas por compras, pagos o traslados.</p>
+                  <div class="form-grid sale-registro-filters">
                     <div class="field">
-                      <label for="fund-opening-cash">Saldo inicial efectivo</label>
-                      <input type="number" id="fund-opening-cash" min="0" step="0.01" placeholder="Ej. 2000" required />
+                      <label for="fund-cash-filter-search">Buscar</label>
+                      <input type="text" id="fund-cash-filter-search" placeholder="Documento, detalle o referencia" />
                     </div>
                     <div class="field">
-                      <label for="fund-opening-bank">Saldo inicial bancos</label>
-                      <input type="number" id="fund-opening-bank" min="0" step="0.01" placeholder="Ej. 15000" required />
+                      <label for="fund-cash-filter-direction">Movimiento</label>
+                      <select id="fund-cash-filter-direction">
+                        <option value="all">Todos</option>
+                        <option value="entrada">Entradas</option>
+                        <option value="salida">Salidas</option>
+                      </select>
                     </div>
                     <div class="field">
-                      <label for="fund-minimum-cash">Fondo mínimo de caja</label>
-                      <input type="number" id="fund-minimum-cash" min="0" step="0.01" placeholder="Ej. 2000" required />
+                      <label for="fund-cash-filter-date-start">Fecha desde</label>
+                      <input type="date" id="fund-cash-filter-date-start" />
+                    </div>
+                    <div class="field">
+                      <label for="fund-cash-filter-date-end">Fecha hasta</label>
+                      <input type="date" id="fund-cash-filter-date-end" />
+                    </div>
+                    <div class="actions filter-actions">
+                      <button type="button" id="clear-fund-cash-filters" class="secondary-btn">Limpiar filtros</button>
                     </div>
                   </div>
-                  <div class="actions purchase-form-actions">
-                    <button type="submit">Guardar configuración</button>
-                  </div>
-                </form>
-                <p class="status" id="fund-settings-status">Registra aquí el saldo inicial de efectivo, el saldo inicial de bancos y el mínimo que quieres reservar en caja.</p>
+                  <div id="fund-cash-records" class="purchase-history"></div>
+                </div>
 
+                <div id="fund-bank-panel" class="purchase-subpanel">
+                  <h3>Movimientos de bancos</h3>
+                  <p class="field-help">Aquí entran transferencias y tarjetas, además de los movimientos entre banco y efectivo.</p>
+                  <div class="form-grid sale-registro-filters">
+                    <div class="field">
+                      <label for="fund-bank-filter-search">Buscar</label>
+                      <input type="text" id="fund-bank-filter-search" placeholder="Documento, detalle o referencia" />
+                    </div>
+                    <div class="field">
+                      <label for="fund-bank-filter-direction">Movimiento</label>
+                      <select id="fund-bank-filter-direction">
+                        <option value="all">Todos</option>
+                        <option value="entrada">Entradas</option>
+                        <option value="salida">Salidas</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label for="fund-bank-filter-date-start">Fecha desde</label>
+                      <input type="date" id="fund-bank-filter-date-start" />
+                    </div>
+                    <div class="field">
+                      <label for="fund-bank-filter-date-end">Fecha hasta</label>
+                      <input type="date" id="fund-bank-filter-date-end" />
+                    </div>
+                    <div class="actions filter-actions">
+                      <button type="button" id="clear-fund-bank-filters" class="secondary-btn">Limpiar filtros</button>
+                    </div>
+                  </div>
+                  <div id="fund-bank-records" class="purchase-history"></div>
+                </div>
+              </div>
+
+              <div id="fund-transfers-panel" class="purchase-subpanel">
+                <h3>Traslados entre cuentas</h3>
+                <p class="field-help">Registra movimientos internos entre efectivo y bancos sin mezclarlos con el historial principal de cada cuenta.</p>
                 <form id="fund-transfer-form" autocomplete="off">
                   <div class="form-grid sale-form-grid">
                     <div class="field">
@@ -1173,19 +1285,33 @@
                     <button type="submit">Registrar traslado</button>
                   </div>
                 </form>
-                <p class="status" id="fund-transfer-status">Aquí verás los ingresos y salidas de efectivo y bancos, además de los traslados entre cuentas.</p>
+                <p class="status" id="fund-transfer-status">Aquí registrarás los traslados entre efectivo y bancos.</p>
+              </div>
 
-                <div id="fund-cash-panel" class="purchase-subpanel active">
-                  <h3>Movimientos de efectivo</h3>
-                  <p class="field-help">Entradas en caja por ventas en efectivo y salidas por compras, pagos o traslados.</p>
-                  <div id="fund-cash-records" class="purchase-history"></div>
-                </div>
+              <div id="fund-settings-panel" class="purchase-subpanel">
+                <p class="field-help" id="fund-cash-reserve-note">Define el fondo mínimo de caja y los saldos iniciales para controlar cuánto efectivo puedes mover sin quedarte corto para vueltos.</p>
 
-                <div id="fund-bank-panel" class="purchase-subpanel">
-                  <h3>Movimientos de bancos</h3>
-                  <p class="field-help">Aquí entran transferencias y tarjetas, además de los movimientos entre banco y efectivo.</p>
-                  <div id="fund-bank-records" class="purchase-history"></div>
-                </div>
+                <form id="fund-settings-form" autocomplete="off" style="margin-bottom: 20px;">
+                  <h3>Configuración base</h3>
+                  <div class="form-grid sale-form-grid">
+                    <div class="field">
+                      <label for="fund-opening-cash">Saldo inicial efectivo</label>
+                      <input type="number" id="fund-opening-cash" min="0" step="0.01" placeholder="Ej. 2000" required />
+                    </div>
+                    <div class="field">
+                      <label for="fund-opening-bank">Saldo inicial bancos</label>
+                      <input type="number" id="fund-opening-bank" min="0" step="0.01" placeholder="Ej. 15000" required />
+                    </div>
+                    <div class="field">
+                      <label for="fund-minimum-cash">Fondo mínimo de caja</label>
+                      <input type="number" id="fund-minimum-cash" min="0" step="0.01" placeholder="Ej. 2000" required />
+                    </div>
+                  </div>
+                  <div class="actions purchase-form-actions">
+                    <button type="submit">Guardar configuración</button>
+                  </div>
+                </form>
+                <p class="status" id="fund-settings-status">Registra aquí el saldo inicial de efectivo, el saldo inicial de bancos y el mínimo que quieres reservar en caja.</p>
               </div>
 
               <div id="fund-external-panel" class="purchase-subpanel">
@@ -1202,9 +1328,7 @@
                     <div class="field">
                       <label for="external-debt-category">Clasificación</label>
                       <select id="external-debt-category" required>
-                        <option value="gasto">Gasto</option>
-                        <option value="inversion">Inversión</option>
-                        <option value="otro">Otro</option>
+                        <option value="">Cargando clasificaciones...</option>
                       </select>
                     </div>
                     <div class="field">

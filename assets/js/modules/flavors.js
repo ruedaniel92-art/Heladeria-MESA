@@ -2,12 +2,10 @@ export function createFlavorsModule(context) {
   const {
     state,
     buildApiUrl,
-    buildRawMaterialOptions,
     calculateFlavorUsageCount,
     cancelFlavorEditButton,
     cancelSauceEditButton,
     cancelToppingEditButton,
-    escapeHtml,
     fetchSabores,
     fetchSauces,
     fetchToppings,
@@ -20,9 +18,13 @@ export function createFlavorsModule(context) {
     formatInventoryQuantity,
     getSauceAvailableStock,
     getToppingAvailableStock,
+    populateRawMaterialSelect,
     refreshSaleExtraCatalogOptions,
     refreshSaleLinesOptions,
+    renderBucketControls,
     renderSaleInfo,
+    renderSauceControls,
+    renderToppingControls,
     sauceForm,
     sauceList,
     sauceNameInput,
@@ -36,9 +38,6 @@ export function createFlavorsModule(context) {
     toppingRawMaterialInput,
     toppingStatus,
     toppingSubmitButton,
-    renderBucketControls,
-    renderSauceControls,
-    renderToppingControls,
   } = context;
 
   let editingFlavorId = null;
@@ -65,6 +64,49 @@ export function createFlavorsModule(context) {
     return state.sauces.find(item => String(item.id) === String(sauceId)) || null;
   }
 
+  function renderEmptyList(container, message) {
+    const paragraph = document.createElement('p');
+    paragraph.className = 'product-list-empty';
+    paragraph.textContent = message;
+    container.replaceChildren(paragraph);
+  }
+
+  function createTextCell(value) {
+    const cell = document.createElement('td');
+    cell.textContent = value;
+    return cell;
+  }
+
+  function createActionButton({ className, title, label, onClick, disabled = false }) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.title = title;
+    button.textContent = label;
+    button.disabled = disabled;
+    button.addEventListener('click', onClick);
+    return button;
+  }
+
+  function createTable(headers, rows, tableClassName = 'history-table') {
+    const table = document.createElement('table');
+    table.className = tableClassName;
+
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    headers.forEach(label => {
+      const cell = document.createElement('th');
+      cell.textContent = label;
+      headerRow.appendChild(cell);
+    });
+    thead.appendChild(headerRow);
+
+    const tbody = document.createElement('tbody');
+    rows.forEach(row => tbody.appendChild(row));
+    table.append(thead, tbody);
+    return table;
+  }
+
   function startEditFlavor(flavorId) {
     const flavor = state.sabores.find(item => String(item.id) === String(flavorId));
     if (!flavor) {
@@ -74,7 +116,7 @@ export function createFlavorsModule(context) {
 
     editingFlavorId = flavor.id;
     flavorNameInput.value = flavor.nombre;
-    flavorRawMaterialInput.innerHTML = buildRawMaterialOptions(flavor.materiaPrimaId || '');
+    populateRawMaterialSelect(flavorRawMaterialInput, flavor.materiaPrimaId || '');
     flavorRawMaterialInput.value = flavor.materiaPrimaId || '';
     flavorSubmitButton.textContent = 'Guardar cambios';
     cancelFlavorEditButton.style.display = 'inline-flex';
@@ -84,7 +126,7 @@ export function createFlavorsModule(context) {
   function cancelEditFlavor() {
     editingFlavorId = null;
     flavorForm.reset();
-    flavorRawMaterialInput.innerHTML = buildRawMaterialOptions();
+    populateRawMaterialSelect(flavorRawMaterialInput);
     flavorSubmitButton.textContent = 'Agregar sabor';
     cancelFlavorEditButton.style.display = 'none';
     flavorStatus.textContent = 'Registra aqui los sabores para usarlos en las ventas por pelotitas.';
@@ -115,7 +157,7 @@ export function createFlavorsModule(context) {
 
     editingToppingId = topping.id;
     toppingNameInput.value = topping.nombre;
-    toppingRawMaterialInput.innerHTML = buildRawMaterialOptions(topping.materiaPrimaId || '');
+    populateRawMaterialSelect(toppingRawMaterialInput, topping.materiaPrimaId || '');
     toppingRawMaterialInput.value = topping.materiaPrimaId || '';
     toppingSubmitButton.textContent = 'Guardar cambios';
     cancelToppingEditButton.style.display = 'inline-flex';
@@ -125,7 +167,7 @@ export function createFlavorsModule(context) {
   function cancelEditTopping() {
     editingToppingId = null;
     toppingForm.reset();
-    toppingRawMaterialInput.innerHTML = buildRawMaterialOptions();
+    populateRawMaterialSelect(toppingRawMaterialInput);
     toppingSubmitButton.textContent = 'Agregar topping';
     cancelToppingEditButton.style.display = 'none';
     toppingStatus.textContent = 'Registra los toppings como materia prima para descontarlos en cada venta.';
@@ -159,7 +201,7 @@ export function createFlavorsModule(context) {
 
     editingSauceId = sauce.id;
     sauceNameInput.value = sauce.nombre;
-    sauceRawMaterialInput.innerHTML = buildRawMaterialOptions(sauce.materiaPrimaId || '');
+    populateRawMaterialSelect(sauceRawMaterialInput, sauce.materiaPrimaId || '');
     sauceRawMaterialInput.value = sauce.materiaPrimaId || '';
     sauceSubmitButton.textContent = 'Guardar cambios';
     cancelSauceEditButton.style.display = 'inline-flex';
@@ -169,7 +211,7 @@ export function createFlavorsModule(context) {
   function cancelEditSauce() {
     editingSauceId = null;
     sauceForm.reset();
-    sauceRawMaterialInput.innerHTML = buildRawMaterialOptions();
+    populateRawMaterialSelect(sauceRawMaterialInput);
     sauceSubmitButton.textContent = 'Agregar salsa';
     cancelSauceEditButton.style.display = 'none';
     sauceStatus.textContent = 'Registra aqui las salsas, aderezos o crema batida como materia prima para descontarlos en cada venta.';
@@ -199,175 +241,151 @@ export function createFlavorsModule(context) {
   function renderFlavorList() {
     if (!flavorList) return;
     if (!state.sabores.length) {
-      flavorList.innerHTML = '<p class="product-list-empty">Aun no has registrado sabores. Crea sabores como vainilla, fresa o chocolate para usarlos en ventas de pelotitas.</p>';
+      renderEmptyList(flavorList, 'Aun no has registrado sabores. Crea sabores como vainilla, fresa o chocolate para usarlos en ventas de pelotitas.');
       return;
     }
 
-    flavorList.innerHTML = `
-      <table class="product-table">
-        <thead>
-          <tr>
-            <th>Sabor</th>
-            <th>Balde vinculado</th>
-            <th>Uso en ventas</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${state.sabores.map(flavor => {
-            const usageCount = calculateFlavorUsageCount(flavor.id);
-            return `
-              <tr>
-                <td>${escapeHtml(flavor.nombre)}</td>
-                <td>${escapeHtml(flavor.materiaPrimaNombre || 'Sin balde')}</td>
-                <td>${usageCount}</td>
-                <td>
-                  <div class="action-buttons">
-                    <button type="button" class="secondary-btn action-icon-btn edit-flavor" data-id="${escapeHtml(flavor.id)}" title="Editar sabor">&#9998;</button>
-                    <button type="button" class="delete-product action-icon-btn delete-flavor" data-id="${escapeHtml(flavor.id)}" ${usageCount > 0 ? 'disabled' : ''} title="Eliminar sabor">&#128465;</button>
-                  </div>
-                </td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
-    `;
+    const rows = state.sabores.map(flavor => {
+      const usageCount = calculateFlavorUsageCount(flavor.id);
+      const row = document.createElement('tr');
+      row.append(
+        createTextCell(flavor.nombre || ''),
+        createTextCell(flavor.materiaPrimaNombre || 'Sin balde'),
+        createTextCell(String(usageCount))
+      );
 
+      const actionCell = document.createElement('td');
+      const actionButtons = document.createElement('div');
+      actionButtons.className = 'action-buttons';
+      actionButtons.append(
+        createActionButton({
+          className: 'secondary-btn action-icon-btn edit-flavor',
+          title: 'Editar sabor',
+          label: '✎',
+          onClick: () => startEditFlavor(flavor.id)
+        }),
+        createActionButton({
+          className: 'delete-product action-icon-btn delete-flavor',
+          title: 'Eliminar sabor',
+          label: '🗑',
+          disabled: usageCount > 0,
+          onClick: () => deleteFlavor(flavor.id)
+        })
+      );
+      actionCell.appendChild(actionButtons);
+      row.appendChild(actionCell);
+      return row;
+    });
+
+    flavorList.replaceChildren(createTable(['Sabor', 'Balde vinculado', 'Uso en ventas', 'Acciones'], rows, 'product-table'));
     syncDynamicTableExport(flavorList, {
       title: 'Sabores registrados',
       fileBase: 'sabores-registrados',
       sheetName: 'Sabores'
-    });
-
-    flavorList.querySelectorAll('.edit-flavor').forEach(button => {
-      button.addEventListener('click', () => startEditFlavor(button.dataset.id));
-    });
-    flavorList.querySelectorAll('.delete-flavor').forEach(button => {
-      button.addEventListener('click', async () => {
-        if (button.disabled) return;
-        await deleteFlavor(button.dataset.id);
-      });
     });
   }
 
   function renderToppingList() {
     if (!toppingList) return;
     if (!state.toppings.length) {
-      toppingList.innerHTML = '<p class="product-list-empty">Aun no has registrado toppings. Crea toppings como chispas, oreo o mani y enlazalos a su materia prima.</p>';
+      renderEmptyList(toppingList, 'Aun no has registrado toppings. Crea toppings como chispas, oreo o mani y enlazalos a su materia prima.');
       return;
     }
 
-    toppingList.innerHTML = `
-      <table class="history-table">
-        <thead>
-          <tr>
-            <th>Topping</th>
-            <th>Materia prima</th>
-            <th>Stock</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${state.toppings.map(topping => {
-            const usageCount = state.sales.reduce((sum, venta) => sum + (Array.isArray(venta.items)
-              ? venta.items.reduce((itemSum, item) => itemSum + (Array.isArray(item.adicionales)
-                ? item.adicionales.reduce((addonSum, addon) => addonSum + (String(addon.id) === String(topping.id) ? Number(addon.cantidad || 0) : 0), 0)
-                : 0), 0)
-              : 0), 0);
-            const toppingAvailableStock = getToppingAvailableStock(topping.id);
-            return `
-              <tr>
-                <td>${escapeHtml(topping.nombre)}</td>
-                <td>${escapeHtml(topping.materiaPrimaNombre || '')}</td>
-                <td>${formatInventoryQuantity(toppingAvailableStock)}</td>
-                <td>
-                  <div class="action-buttons">
-                    <button type="button" class="secondary-btn action-icon-btn edit-topping" data-id="${escapeHtml(topping.id)}" title="Editar topping">&#9998;</button>
-                    <button type="button" class="delete-product action-icon-btn delete-topping" data-id="${escapeHtml(topping.id)}" ${usageCount > 0 ? 'disabled' : ''} title="Eliminar topping">&#128465;</button>
-                  </div>
-                </td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
-    `;
+    const rows = state.toppings.map(topping => {
+      const usageCount = state.sales.reduce((sum, venta) => sum + (Array.isArray(venta.items)
+        ? venta.items.reduce((itemSum, item) => itemSum + (Array.isArray(item.adicionales)
+          ? item.adicionales.reduce((addonSum, addon) => addonSum + (String(addon.id) === String(topping.id) ? Number(addon.cantidad || 0) : 0), 0)
+          : 0), 0)
+        : 0), 0);
+      const toppingAvailableStock = getToppingAvailableStock(topping.id);
+      const row = document.createElement('tr');
+      row.append(
+        createTextCell(topping.nombre || ''),
+        createTextCell(topping.materiaPrimaNombre || ''),
+        createTextCell(formatInventoryQuantity(toppingAvailableStock))
+      );
 
+      const actionCell = document.createElement('td');
+      const actionButtons = document.createElement('div');
+      actionButtons.className = 'action-buttons';
+      actionButtons.append(
+        createActionButton({
+          className: 'secondary-btn action-icon-btn edit-topping',
+          title: 'Editar topping',
+          label: '✎',
+          onClick: () => startEditTopping(topping.id)
+        }),
+        createActionButton({
+          className: 'delete-product action-icon-btn delete-topping',
+          title: 'Eliminar topping',
+          label: '🗑',
+          disabled: usageCount > 0,
+          onClick: () => deleteTopping(topping.id)
+        })
+      );
+      actionCell.appendChild(actionButtons);
+      row.appendChild(actionCell);
+      return row;
+    });
+
+    toppingList.replaceChildren(createTable(['Topping', 'Materia prima', 'Stock', 'Acciones'], rows));
     syncDynamicTableExport(toppingList, {
       title: 'Toppings registrados',
       fileBase: 'toppings-registrados',
       sheetName: 'Toppings'
-    });
-
-    toppingList.querySelectorAll('.edit-topping').forEach(button => {
-      button.addEventListener('click', () => startEditTopping(button.dataset.id));
-    });
-    toppingList.querySelectorAll('.delete-topping').forEach(button => {
-      button.addEventListener('click', async () => {
-        if (button.disabled) return;
-        await deleteTopping(button.dataset.id);
-      });
     });
   }
 
   function renderSauceList() {
     if (!sauceList) return;
     if (!state.sauces.length) {
-      sauceList.innerHTML = '<p class="product-list-empty">Aun no has registrado salsas, aderezos o crema batida. Crea sus nombres y enlazalos a su materia prima.</p>';
+      renderEmptyList(sauceList, 'Aun no has registrado salsas, aderezos o crema batida. Crea sus nombres y enlazalos a su materia prima.');
       return;
     }
 
-    sauceList.innerHTML = `
-      <table class="history-table">
-        <thead>
-          <tr>
-            <th>Salsa / aderezo</th>
-            <th>Materia prima</th>
-            <th>Stock</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${state.sauces.map(sauce => {
-            const usageCount = state.sales.reduce((sum, venta) => sum + (Array.isArray(venta.items)
-              ? venta.items.reduce((itemSum, item) => itemSum + (Array.isArray(item.adicionales)
-                ? item.adicionales.reduce((addonSum, addon) => addonSum + (String(addon.id) === String(sauce.id) ? Number(addon.cantidad || 0) : 0), 0)
-                : 0), 0)
-              : 0), 0);
-            const sauceAvailableStock = getSauceAvailableStock(sauce.id);
-            return `
-              <tr>
-                <td>${escapeHtml(sauce.nombre)}</td>
-                <td>${escapeHtml(sauce.materiaPrimaNombre || '')}</td>
-                <td>${formatInventoryQuantity(sauceAvailableStock)}</td>
-                <td>
-                  <div class="action-buttons">
-                    <button type="button" class="secondary-btn action-icon-btn edit-sauce" data-id="${escapeHtml(sauce.id)}" title="Editar salsa">&#9998;</button>
-                    <button type="button" class="delete-product action-icon-btn delete-sauce" data-id="${escapeHtml(sauce.id)}" ${usageCount > 0 ? 'disabled' : ''} title="Eliminar salsa">&#128465;</button>
-                  </div>
-                </td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
-    `;
+    const rows = state.sauces.map(sauce => {
+      const usageCount = state.sales.reduce((sum, venta) => sum + (Array.isArray(venta.items)
+        ? venta.items.reduce((itemSum, item) => itemSum + (Array.isArray(item.adicionales)
+          ? item.adicionales.reduce((addonSum, addon) => addonSum + (String(addon.id) === String(sauce.id) ? Number(addon.cantidad || 0) : 0), 0)
+          : 0), 0)
+        : 0), 0);
+      const sauceAvailableStock = getSauceAvailableStock(sauce.id);
+      const row = document.createElement('tr');
+      row.append(
+        createTextCell(sauce.nombre || ''),
+        createTextCell(sauce.materiaPrimaNombre || ''),
+        createTextCell(formatInventoryQuantity(sauceAvailableStock))
+      );
 
+      const actionCell = document.createElement('td');
+      const actionButtons = document.createElement('div');
+      actionButtons.className = 'action-buttons';
+      actionButtons.append(
+        createActionButton({
+          className: 'secondary-btn action-icon-btn edit-sauce',
+          title: 'Editar salsa',
+          label: '✎',
+          onClick: () => startEditSauce(sauce.id)
+        }),
+        createActionButton({
+          className: 'delete-product action-icon-btn delete-sauce',
+          title: 'Eliminar salsa',
+          label: '🗑',
+          disabled: usageCount > 0,
+          onClick: () => deleteSauce(sauce.id)
+        })
+      );
+      actionCell.appendChild(actionButtons);
+      row.appendChild(actionCell);
+      return row;
+    });
+
+    sauceList.replaceChildren(createTable(['Salsa / aderezo', 'Materia prima', 'Stock', 'Acciones'], rows));
     syncDynamicTableExport(sauceList, {
       title: 'Salsas y aderezos registrados',
       fileBase: 'salsas-aderezos-registrados',
       sheetName: 'Salsas y Aderezos'
-    });
-
-    sauceList.querySelectorAll('.edit-sauce').forEach(button => {
-      button.addEventListener('click', () => startEditSauce(button.dataset.id));
-    });
-    sauceList.querySelectorAll('.delete-sauce').forEach(button => {
-      button.addEventListener('click', async () => {
-        if (button.disabled) return;
-        await deleteSauce(button.dataset.id);
-      });
     });
   }
 

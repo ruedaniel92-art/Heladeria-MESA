@@ -632,6 +632,7 @@ const { registerControlRoutes } = createControlHandlers({
   applyConsumableCostSnapshot,
   applyFinalCostToSalesForControl,
   asyncHandler,
+  buildInventoryMovement,
   collections: COLLECTIONS,
   commitBatch,
   createDocId,
@@ -696,6 +697,7 @@ const { registerSalesRoutes } = createSalesHandlers({
   ensureSaleFinancialState,
   getAccountFromPaymentMethod,
   getActiveBucketForFlavor,
+  getFlavorAvailableStock,
   getActiveSauceControlForSauce,
   getActiveToppingControlForTopping,
   getBaldesControl: () => baldesControl,
@@ -796,7 +798,6 @@ if (require.main === module) {
     console.log(`Servidor en http://localhost:${port}`);
   });
 }
-
 
 
 

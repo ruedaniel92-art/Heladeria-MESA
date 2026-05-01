@@ -57,7 +57,7 @@ function productIdentityKey(product) {
   const precio = tipo === "materia prima" ? 0 : Number(product.precio || 0);
   const stockMin = Number(product.stockMin || product.stockMinimo || 0);
   const medida = (tipo === "materia prima" ? String(product.medida || "").trim().toLowerCase() : "");
-  const ingredientesKeyString = tipo === "producto terminado" ? ingredientsKey(product.ingredientes) : "";
+  const ingredientesKeyString = tipo !== "materia prima" ? ingredientsKey(product.ingredientes) : "";
   const controlSabores = product.controlSabores ? "1" : "0";
   const rendimientoPorCompra = tipo === "materia prima" ? Number(product.rendimientoPorCompra || 0) : 0;
   const pelotasPorUnidad = tipo === "productos" ? Number(product.pelotasPorUnidad || 0) : 0;

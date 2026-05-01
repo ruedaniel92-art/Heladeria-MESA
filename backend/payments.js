@@ -133,8 +133,8 @@ function createPaymentHandlers({
       if (!outgoingPaymentMethods.includes(paymentMethod)) {
         return res.status(400).json({ error: "MÃ©todo de pago invÃ¡lido" });
       }
-      if (paymentMethod === "transferencia" && !referencia) {
-        return res.status(400).json({ error: "La referencia es obligatoria para pagos por transferencia." });
+      if (["transferencia", "tarjeta", "tarjeta-credito"].includes(paymentMethod) && !referencia) {
+        return res.status(400).json({ error: "La referencia es obligatoria para pagos con tarjeta o transferencia." });
       }
 
       const receiptNumber = paymentMethod === "efectivo"
@@ -216,8 +216,8 @@ function createPaymentHandlers({
       if (!outgoingPaymentMethods.includes(paymentMethod)) {
         return res.status(400).json({ error: "MÃ©todo de pago invÃ¡lido" });
       }
-      if (paymentMethod === "transferencia" && !referencia) {
-        return res.status(400).json({ error: "La referencia es obligatoria para pagos por transferencia." });
+      if (["transferencia", "tarjeta", "tarjeta-credito"].includes(paymentMethod) && !referencia) {
+        return res.status(400).json({ error: "La referencia es obligatoria para pagos con tarjeta o transferencia." });
       }
 
       const receiptNumber = paymentMethod === "efectivo"

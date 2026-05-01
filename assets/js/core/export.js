@@ -1,8 +1,47 @@
+function hasNumberColumn(headers = []) {
+  const firstHeader = String(headers[0] || "").trim().toLowerCase();
+  return ["no.", "no", "#", "nÂ°", "nro", "nro."].includes(firstHeader);
+}
+
+function addNumberColumnToObjects(rows) {
+  if (!rows.length) {
+    return rows;
+  }
+  const firstKeys = Object.keys(rows[0] || {});
+  if (hasNumberColumn(firstKeys)) {
+    return rows;
+  }
+  return rows.map((row, index) => ({
+    "No.": index + 1,
+    ...row
+  }));
+}
+
+function addNumberColumnToTable(headers, rows) {
+  if (hasNumberColumn(headers)) {
+    return { headers, rows };
+  }
+  return {
+    headers: ["No.", ...headers],
+    rows: rows.map((row, index) => [String(index + 1), ...row])
+  };
+}
+
+function formatExportDateTime(date = new Date()) {
+  return date.toLocaleString("es-NI", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 export function exportRowsToExcel(rows, fileName, sheetName) {
   if (!rows.length) {
     return false;
   }
-  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const worksheet = XLSX.utils.json_to_sheet(addNumberColumnToObjects(rows));
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   XLSX.writeFile(workbook, fileName);
@@ -15,14 +54,73 @@ export function exportRowsToPdf(title, headers, rows, fileName) {
   }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape" });
-  doc.setFontSize(14);
-  doc.text(title, 14, 16);
+  const generatedAt = formatExportDateTime();
+  const numberedData = addNumberColumnToTable(headers, rows);
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 12;
+
+  doc.setProperties({
+    title,
+    subject: "Exportacion de datos",
+    author: "Heladeria MESA",
+    creator: "Heladeria MESA"
+  });
+
   doc.autoTable({
-    startY: 22,
-    head: [headers],
-    body: rows,
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [91, 108, 255] }
+    startY: 32,
+    margin: { top: 32, right: marginX, bottom: 18, left: marginX },
+    head: [numberedData.headers],
+    body: numberedData.rows,
+    theme: "grid",
+    tableLineColor: [214, 221, 235],
+    tableLineWidth: 0.1,
+    styles: {
+      fontSize: 7.5,
+      cellPadding: 2,
+      overflow: "linebreak",
+      valign: "middle",
+      lineColor: [226, 232, 240],
+      lineWidth: 0.1,
+      textColor: [30, 41, 59]
+    },
+    headStyles: {
+      fillColor: [31, 41, 71],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      halign: "center"
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252]
+    },
+    columnStyles: {
+      0: { cellWidth: 12, halign: "center", fontStyle: "bold" }
+    },
+    didDrawPage: data => {
+      const pageNumber = doc.internal.getNumberOfPages();
+      doc.setFillColor(31, 41, 71);
+      doc.rect(0, 0, pageWidth, 22, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(14);
+      doc.setFont(undefined, "bold");
+      doc.text(title, marginX, 10);
+      doc.setFontSize(8);
+      doc.setFont(undefined, "normal");
+      doc.text("Heladeria MESA", pageWidth - marginX, 8, { align: "right" });
+      doc.text(`Generado: ${generatedAt}`, pageWidth - marginX, 14, { align: "right" });
+
+      doc.setTextColor(71, 85, 105);
+      doc.setFontSize(8);
+      doc.text(`Registros: ${rows.length}`, marginX, 27);
+      doc.text(fileName, pageWidth - marginX, 27, { align: "right" });
+
+      doc.setDrawColor(226, 232, 240);
+      doc.line(marginX, pageHeight - 13, pageWidth - marginX, pageHeight - 13);
+      doc.setTextColor(100, 116, 139);
+      doc.setFontSize(8);
+      doc.text(`Pagina ${pageNumber}`, pageWidth - marginX, pageHeight - 8, { align: "right" });
+      doc.text("Exportacion generada desde el sistema Heladeria MESA", marginX, pageHeight - 8);
+    }
   });
   doc.save(fileName);
   return true;
@@ -148,6 +246,12 @@ export function syncDynamicTableExport(container, { title, fileBase, sheetName }
   });
 
   toolbar.append(excelButton, pdfButton);
+
+  const productTableShell = table.closest(".product-table-shell");
+  if (productTableShell) {
+    container.insertBefore(toolbar, productTableShell);
+    return;
+  }
 
   if (container.classList.contains("purchase-history")) {
     const anchor = table.closest(".product-table-shell") || table;

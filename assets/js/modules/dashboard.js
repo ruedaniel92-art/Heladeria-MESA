@@ -6,6 +6,8 @@ export function createDashboardModule(context) {
     isExpensePayment,
     getPaymentCategoryName,
     getExternalDebtOriginalAmount,
+    getExternalDebtBalanceDue,
+    getExternalDebtStatus,
     calculateSaleInvoiceTotal,
     calculateSaleAddonsTotal,
     calculateSaleComponentsTotal,
@@ -69,6 +71,8 @@ export function createDashboardModule(context) {
     getProductInventoryMode,
   } = context;
 
+  const saleCostMovementTypes = new Set(['Venta', 'Venta receta', 'Venta sabor', 'Adicional', 'Venta personalizada']);
+
   function isSameCalendarDay(leftDate, rightDate) {
     return leftDate.getFullYear() === rightDate.getFullYear()
       && leftDate.getMonth() === rightDate.getMonth()
@@ -127,7 +131,6 @@ export function createDashboardModule(context) {
   function buildDashboardFinancialSnapshot(referenceDate = new Date()) {
     const monthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
     const nextMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 1);
-    const saleMovementTypes = new Set(['Venta', 'Venta receta', 'Venta sabor', 'Adicional']);
     const snapshot = {
       inventoryCostValue: 0,
       inventoryExpectedSalesValue: 0,
@@ -156,7 +159,7 @@ export function createDashboardModule(context) {
       }
   
       movements.forEach(movement => {
-        if (!saleMovementTypes.has(String(movement.type || ''))) {
+        if (!saleCostMovementTypes.has(String(movement.type || ''))) {
           return;
         }
         if (!movement.date) {
@@ -254,6 +257,13 @@ export function createDashboardModule(context) {
     }
     return date >= monthStart && date < nextMonthStart;
   }
+
+  function buildDashboardSaleCostMovements(monthStart, nextMonthStart) {
+    return state.productos
+      .flatMap(producto => buildInventoryKardexMovements(producto.id))
+      .filter(movement => saleCostMovementTypes.has(String(movement.type || '')))
+      .filter(movement => isDateWithinMonthRange(movement.date, monthStart, nextMonthStart));
+  }
   
   function buildDashboardIncomeStatementMonth(monthDate) {
     // Declarar los límites del mes antes de usarlos
@@ -280,12 +290,8 @@ export function createDashboardModule(context) {
         ? sum + calculateSaleInvoiceTotal(venta)
         : sum;
     }, 0);
-    const costos = state.inventoryMovements.reduce((sum, movement) => {
-      return String(movement?.tipo || '').trim().toLowerCase() === 'salida'
-        && isDateWithinMonthRange(movement.fecha || movement.createdAt, monthStart, nextMonthStart)
-        ? sum + Number(movement.costoTotal || 0)
-        : sum;
-    }, 0);
+    const costMovements = buildDashboardSaleCostMovements(monthStart, nextMonthStart);
+    const costos = costMovements.reduce((sum, movement) => sum + Number(movement.totalCost || 0), 0);
     // Solo pagos con categoría 'gasto'
     const gastosPagos = state.payments.reduce((sum, payment) => {
       return isExpensePayment(payment) && isDateWithinMonthRange(payment.fecha || payment.createdAt, monthStart, nextMonthStart)
@@ -313,7 +319,7 @@ export function createDashboardModule(context) {
       gastos,
       utilidadNeta,
       salesCount: state.sales.filter(venta => isDateWithinMonthRange(venta.fecha, monthStart, nextMonthStart)).length,
-      costMovementsCount: state.inventoryMovements.filter(movement => String(movement?.tipo || '').trim().toLowerCase() === 'salida' && isDateWithinMonthRange(movement.fecha || movement.createdAt, monthStart, nextMonthStart)).length,
+      costMovementsCount: costMovements.length,
       expenseCount:
         state.payments.filter(payment => isExpensePayment(payment) && isDateWithinMonthRange(payment.fecha || payment.createdAt, monthStart, nextMonthStart)).length
         + state.externalDebts.filter(debt => String(debt?.type || '').trim().toLowerCase() === 'por-pagar' && (debt.categoria || debt.category || '').toLowerCase() === 'gasto' && isDateWithinMonthRange(debt.fecha || debt.createdAt, monthStart, nextMonthStart)).length,
@@ -405,6 +411,7 @@ export function createDashboardModule(context) {
         key: 'efectivo',
         title: 'Efectivo',
         balance: 0,
+        previousBalance: 0,
         monthEntries: 0,
         monthExits: 0,
         monthNet: 0,
@@ -416,6 +423,7 @@ export function createDashboardModule(context) {
         key: 'banco',
         title: 'Bancos',
         balance: 0,
+        previousBalance: 0,
         monthEntries: 0,
         monthExits: 0,
         monthNet: 0,
@@ -461,6 +469,8 @@ export function createDashboardModule(context) {
   
     summaries.efectivo.monthNet = summaries.efectivo.monthEntries - summaries.efectivo.monthExits;
     summaries.banco.monthNet = summaries.banco.monthEntries - summaries.banco.monthExits;
+    summaries.efectivo.previousBalance = summaries.efectivo.balance - summaries.efectivo.monthNet;
+    summaries.banco.previousBalance = summaries.banco.balance - summaries.banco.monthNet;
   
     const cashAvailable = Math.max(summaries.efectivo.balance - fundSettings.minimumCashReserve, 0);
     const cashDeficit = Math.max(fundSettings.minimumCashReserve - summaries.efectivo.balance, 0);
@@ -473,6 +483,7 @@ export function createDashboardModule(context) {
       key: 'combined',
       title: 'Ambos',
       balance: summaries.efectivo.balance + summaries.banco.balance,
+      previousBalance: summaries.efectivo.previousBalance + summaries.banco.previousBalance,
       monthEntries: summaries.efectivo.monthEntries + summaries.banco.monthEntries,
       monthExits: summaries.efectivo.monthExits + summaries.banco.monthExits,
       monthNet: summaries.efectivo.monthNet + summaries.banco.monthNet,
@@ -492,11 +503,13 @@ export function createDashboardModule(context) {
           label,
           amount: 0,
           count: 0,
-          modules: new Set()
+          modules: new Set(),
+          items: []
         };
         existing.amount += Number(detail.amount || 0);
         existing.count += 1;
         existing.modules.add(getFundMovementModuleLabel(detail.module));
+        existing.items.push(detail);
         accumulator.set(label, existing);
         return accumulator;
       }, new Map());
@@ -505,6 +518,7 @@ export function createDashboardModule(context) {
         .map(group => ({
           label: group.label,
           amount: group.amount,
+          items: group.items,
           meta: `${group.count} movimiento(s) · ${Array.from(group.modules).join(', ')}`
         }))
         .sort((left, right) => right.amount - left.amount);
@@ -593,11 +607,13 @@ export function createDashboardModule(context) {
   function getDashboardCashFlowExitGroup(movement) {
     const moduleName = String(movement?.module || '').trim().toLowerCase();
     if (moduleName === 'compras') {
-      const providerMatch = String(movement?.detail || '').match(/Proveedor:\s*(.+)$/i);
-      return providerMatch?.[1]?.trim() || 'Proveedores';
+      return 'Compras';
     }
     if (moduleName === 'pagos') {
       return String(movement?.title || '').trim() || 'Pagos';
+    }
+    if (moduleName === 'deudas-externas') {
+      return String(movement?.categoryName || movement?.category || '').trim() || 'Sin clasificacion';
     }
     if (moduleName === 'traslados') {
       return 'Traslados';
@@ -611,23 +627,30 @@ export function createDashboardModule(context) {
       container.innerHTML = '<p class="dashboard-empty">Todavía no hay flujo suficiente para mostrar.</p>';
       return;
     }
+
+    ensureDashboardExpenseModalSupport();
+    window._dashboardCashFlowGroups = {};
   
-    function renderExitDetails(groups) {
+    function renderExitDetails(groups, ownerKey = '') {
       if (!Array.isArray(groups) || !groups.length) {
         return '<p class="dashboard-empty">No hay salidas agrupadas en este mes.</p>';
       }
   
       return `
         <div class="dashboard-flow-detail-list">
-          ${groups.map(group => `
-            <div class="dashboard-flow-detail-item">
+          ${groups.map((group, index) => {
+            const groupKey = `${ownerKey}-${group.label}-${index}-${Math.round(Number(group.amount || 0) * 100)}`;
+            window._dashboardCashFlowGroups[groupKey] = group;
+            return `
+            <button type="button" class="dashboard-flow-detail-item" onclick='window.showCashFlowDetailModal(${JSON.stringify(groupKey)})'>
               <div class="dashboard-flow-detail-main">
                 <strong>${escapeHtml(group.label)}</strong>
                 <span>${escapeHtml(group.meta)}</span>
               </div>
               <div class="dashboard-flow-detail-amount">${escapeHtml(formatCurrency(group.amount))}</div>
-            </div>
-          `).join('')}
+            </button>
+          `;
+          }).join('')}
         </div>
       `;
     }
@@ -640,10 +663,6 @@ export function createDashboardModule(context) {
         </div>
         <div class="dashboard-flow-metrics">
           <div class="dashboard-flow-metric">
-            <span>Saldo actual</span>
-            <strong>${escapeHtml(formatCurrency(item.balance))}</strong>
-          </div>
-          <div class="dashboard-flow-metric">
             <span>Entradas del mes</span>
             <strong>${escapeHtml(formatCurrency(item.monthEntries))}</strong>
           </div>
@@ -655,13 +674,21 @@ export function createDashboardModule(context) {
             <span>Neto del mes</span>
             <strong>${escapeHtml(formatCurrency(item.monthNet))}</strong>
           </div>
+          <div class="dashboard-flow-metric">
+            <span>Saldo anterior</span>
+            <strong>${escapeHtml(formatCurrency(item.previousBalance || 0))}</strong>
+          </div>
+          <div class="dashboard-flow-metric">
+            <span>Saldo actual</span>
+            <strong>${escapeHtml(formatCurrency(item.balance))}</strong>
+          </div>
         </div>
         <div class="dashboard-flow-note">${escapeHtml(item.note)}</div>
         <div class="dashboard-section-header" style="margin-top: 10px; margin-bottom: 8px;">
           <h4>Detalle de salidas</h4>
           <span>${escapeHtml(formatCurrency(item.monthExits))}</span>
         </div>
-        ${renderExitDetails(item.exitGroups)}
+        ${renderExitDetails(item.exitGroups, item.key)}
       </article>
     `).join('');
   }
@@ -862,6 +889,110 @@ export function createDashboardModule(context) {
         overlay.focus();
       };
     }
+
+    if (typeof window.showCashFlowDetailModal !== 'function') {
+      window.showCashFlowDetailModal = function showCashFlowDetailModal(groupKey) {
+        const groups = window._dashboardCashFlowGroups || {};
+        const group = groups[groupKey];
+        const titleText = group?.label || String(groupKey || 'Detalle de salidas');
+        const items = Array.isArray(group?.items) ? group.items : [];
+        const total = items.reduce((sum, item) => sum + Number(item?.amount || 0), 0);
+
+        const overlay = document.createElement('div');
+        overlay.className = 'dashboard-modal-overlay';
+        overlay.tabIndex = -1;
+
+        const modal = document.createElement('div');
+        modal.className = 'dashboard-modal';
+
+        const handleEscape = event => {
+          if (event.key === 'Escape') {
+            close();
+          }
+        };
+
+        const close = () => {
+          window.removeEventListener('keydown', handleEscape);
+          if (overlay.parentNode) {
+            overlay.parentNode.removeChild(overlay);
+          }
+        };
+
+        overlay.addEventListener('click', event => {
+          if (event.target === overlay) {
+            close();
+          }
+        });
+
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'dashboard-modal-close';
+        closeButton.innerHTML = '&times;';
+        closeButton.setAttribute('aria-label', 'Cerrar detalle de salidas');
+        closeButton.addEventListener('click', close);
+
+        const header = document.createElement('div');
+        header.className = 'dashboard-modal-header';
+
+        const title = document.createElement('div');
+        title.className = 'dashboard-modal-title';
+        title.textContent = titleText;
+
+        const subtitle = document.createElement('div');
+        subtitle.className = 'dashboard-modal-subtitle';
+        subtitle.textContent = `Total: ${formatCurrency(total)}`;
+
+        header.appendChild(title);
+        header.appendChild(subtitle);
+
+        const list = document.createElement('div');
+        list.className = 'dashboard-modal-list';
+
+        if (!items.length) {
+          const empty = document.createElement('span');
+          empty.className = 'dashboard-expense-detail-empty';
+          empty.textContent = 'Sin salidas registradas';
+          list.appendChild(empty);
+        } else {
+          items.forEach(item => {
+            const row = document.createElement('div');
+            row.className = 'dashboard-modal-list-item';
+
+            const date = document.createElement('span');
+            date.className = 'dashboard-modal-list-date';
+            date.textContent = formatDate(item.date);
+
+            const description = document.createElement('span');
+            description.className = 'dashboard-modal-list-desc';
+            const safeTitle = escapeHtml(item.title || getFundMovementModuleLabel(item.module) || 'Salida');
+            const safeDetail = item.detail
+              ? ` <span style="color:#64748b;font-size:0.92em;">· ${escapeHtml(item.detail)}</span>`
+              : '';
+            const safeReference = item.reference
+              ? ` <span style="color:#94a3b8;font-size:0.88em;">Ref. ${escapeHtml(item.reference)}</span>`
+              : '';
+            description.innerHTML = `${safeTitle}${safeDetail}${safeReference}`;
+
+            const amount = document.createElement('span');
+            amount.className = 'dashboard-modal-list-amount';
+            amount.textContent = formatCurrency(item.amount || 0);
+
+            row.appendChild(date);
+            row.appendChild(description);
+            row.appendChild(amount);
+            list.appendChild(row);
+          });
+        }
+
+        modal.appendChild(closeButton);
+        modal.appendChild(header);
+        modal.appendChild(list);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        window.addEventListener('keydown', handleEscape);
+        overlay.focus();
+      };
+    }
   }
   
   function renderDashboardIncomeStatement(container, items) {
@@ -926,9 +1057,6 @@ export function createDashboardModule(context) {
                     <button
                       type="button"
                       class="dashboard-expense-summary-item"
-                      style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 0;background:none;border:none;outline:none;cursor:pointer;border-radius:8px;transition:background 0.2s;gap:10px;"
-                      onmouseover="this.style.background='#f9eaea'"
-                      onmouseout="this.style.background='transparent'"
                       onclick='window.showExpenseModal(${JSON.stringify(groupKey)})'
                     >
                       <span style="color:#e74c3c;font-weight:600;font-size:1em;">${escapeHtml(category)}</span>
@@ -943,7 +1071,7 @@ export function createDashboardModule(context) {
               <strong>${escapeHtml(formatCurrency(item.utilidadNeta))}</strong>
             </div>
           </div>
-          <div class="dashboard-income-footnote">Base: ventas del mes, inventoryMovements tipo salida usando costoTotal, pagos y deudas externas por pagar clasificadas como gasto. Sin recalcular costos ni PEPS.</div>
+          <div class="dashboard-income-footnote">Base: ventas del mes, salidas de venta del kardex con costo PEPS o costo final del control, pagos y deudas externas por pagar clasificadas como gasto.</div>
         </article>
       `;
     }).join('');
@@ -956,6 +1084,9 @@ export function createDashboardModule(context) {
     const incomeStatementReferenceMonth = getDashboardIncomeStatementReferenceMonth();
     const receivables = state.sales.filter(venta => isCreditSale(venta) && !isPaidCreditSale(venta));
     const payables = state.purchases.filter(compra => isCreditPurchase(compra) && !isPaidCreditPurchase(compra));
+    const externalDebts = Array.isArray(state.externalDebts) ? state.externalDebts : [];
+    const externalReceivables = externalDebts.filter(debt => String(debt?.type || '').trim().toLowerCase() === 'por-cobrar' && getExternalDebtBalanceDue(debt) > 0.0001);
+    const externalPayables = externalDebts.filter(debt => String(debt?.type || '').trim().toLowerCase() !== 'por-cobrar' && getExternalDebtBalanceDue(debt) > 0.0001);
     const todaySales = state.sales.filter(venta => venta.fecha && isSameCalendarDay(new Date(venta.fecha), now));
     const monthSales = state.sales.filter(venta => {
       if (!venta.fecha) return false;
@@ -971,6 +1102,8 @@ export function createDashboardModule(context) {
     overdueDate.setHours(0, 0, 0, 0);
     const overdueReceivables = receivables.filter(venta => getSaleAccountStatus(venta).key === 'overdue');
     const overduePayables = payables.filter(compra => getPurchaseAccountStatus(compra).key === 'overdue');
+    const overdueExternalReceivables = externalReceivables.filter(debt => getExternalDebtStatus(debt).key === 'overdue');
+    const overdueExternalPayables = externalPayables.filter(debt => getExternalDebtStatus(debt).key === 'overdue');
     const lowStockProducts = buildDashboardLowStockProducts();
     const activeBuckets = state.bucketControls.filter(bucket => String(bucket.estado) === 'abierto');
     const activeToppings = state.toppingControls.filter(control => String(control.estado) === 'abierto');
@@ -984,15 +1117,17 @@ export function createDashboardModule(context) {
     const totalMonthSales = monthSales.reduce((sum, venta) => sum + calculateSaleInvoiceTotal(venta), 0);
     const totalMonthPurchases = monthPurchases.reduce((sum, compra) => sum + calculateInvoiceTotal(compra), 0);
     const totalMonthProfit = totalMonthSales - financialSnapshot.monthCosts - financialSnapshot.monthExpensePayments;
-    const totalReceivables = receivables.reduce((sum, venta) => sum + getSaleBalanceDue(venta), 0);
-    const totalPayables = payables.reduce((sum, compra) => sum + getPurchaseBalanceDue(compra), 0);
+    const totalReceivables = receivables.reduce((sum, venta) => sum + getSaleBalanceDue(venta), 0)
+      + externalReceivables.reduce((sum, debt) => sum + getExternalDebtBalanceDue(debt), 0);
+    const totalPayables = payables.reduce((sum, compra) => sum + getPurchaseBalanceDue(compra), 0)
+      + externalPayables.reduce((sum, debt) => sum + getExternalDebtBalanceDue(debt), 0);
   
     dashboardSummaryText.textContent = `Ventas, utilidad, inventario valorizado y alertas operativas en una sola vista.`;
     if (dashboardCashFlowSummary) {
       dashboardCashFlowSummary.textContent = `Revisa el flujo en efectivo, bancos y el consolidado con base en ventas, compras, pagos y traslados. Periodo: ${cashflowFilter.label}.`;
     }
     if (dashboardIncomeStatementSummary) {
-      dashboardIncomeStatementSummary.textContent = `Estado de resultados desde ${incomeStatement[incomeStatement.length - 1]?.label || ''} hasta ${incomeStatement[0]?.label || ''}, usando ventas, inventoryMovements tipo salida y gastos existentes.`;
+      dashboardIncomeStatementSummary.textContent = `Estado de resultados desde ${incomeStatement[incomeStatement.length - 1]?.label || ''} hasta ${incomeStatement[0]?.label || ''}, usando ventas, salidas de venta del kardex y gastos existentes.`;
     }
     dashboardLastUpdated.textContent = `Actualizado ${now.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })} ${now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`;
     dashboardSalesToday.textContent = formatCurrency(totalTodaySales);
@@ -1013,9 +1148,9 @@ export function createDashboardModule(context) {
     dashboardInventoryValue.textContent = formatCurrency(financialSnapshot.inventoryCostValue);
     dashboardInventoryMeta.textContent = `${financialSnapshot.stockedProducts} producto(s) con stock · venta esperada ${formatCurrency(financialSnapshot.inventoryExpectedSalesValue)} · utilidad esperada ${formatCurrency(financialSnapshot.inventoryExpectedProfit)}`;
     dashboardReceivablesTotal.textContent = formatCurrency(totalReceivables);
-    dashboardReceivablesMeta.textContent = `${receivables.length} pendiente(s) · ${overdueReceivables.length} vencida(s)`;
+    dashboardReceivablesMeta.textContent = `${receivables.length + externalReceivables.length} pendiente(s) · ${overdueReceivables.length + overdueExternalReceivables.length} vencida(s)`;
     dashboardPayablesTotal.textContent = formatCurrency(totalPayables);
-    dashboardPayablesMeta.textContent = `${payables.length} pendiente(s) · ${overduePayables.length} vencida(s)`;
+    dashboardPayablesMeta.textContent = `${payables.length + externalPayables.length} pendiente(s) · ${overduePayables.length + overdueExternalPayables.length} vencida(s)`;
     dashboardLowStockCount.textContent = String(lowStockProducts.length);
     dashboardLowStockMeta.textContent = lowStockProducts.length
       ? `${lowStockProducts.length} producto(s) en o bajo mínimo`
