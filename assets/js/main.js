@@ -597,7 +597,9 @@
     const saleCashMixedCardReferenceInput = document.getElementById('sale-cash-mixed-card-reference');
     const saveSaleCajaConfigButton = document.getElementById('save-sale-caja-config');
     const saleCashDraftStatus = document.getElementById('sale-cash-draft-status');
+    const cancelInventoryInitialEditButton = document.getElementById('cancel-inventory-initial-edit');
     let editingProductId = null;
+    let editingInventoryInitialMovementId = null;
     let editingPurchasePaymentEntryId = null;
     let getEditingFlavorId = () => null;
     let getEditingToppingId = () => null;
@@ -7167,6 +7169,55 @@
       return '-';
     }
 
+    function getInventoryInitialLinkedValue(movement) {
+      if (movement?.flavorId) return `flavor:${movement.flavorId}`;
+      if (movement?.toppingId) return `topping:${movement.toppingId}`;
+      if (movement?.sauceId) return `sauce:${movement.sauceId}`;
+      return '';
+    }
+
+    function updateInventoryInitialSubmitState() {
+      const submitButton = inventoryInitialForm?.querySelector('button[type="submit"]');
+      const isEditing = Boolean(editingInventoryInitialMovementId);
+      if (submitButton && submitButton.dataset.loadingActive !== 'true') {
+        submitButton.textContent = isEditing ? 'Actualizar inventario inicial' : 'Guardar inventario inicial';
+      }
+      cancelInventoryInitialEditButton?.classList.toggle('field-hidden', !isEditing);
+    }
+
+    function startEditInventoryInitialMovement(movementId) {
+      const movement = state.inventoryMovements.find(item => String(item.id) === String(movementId));
+      if (!movement) {
+        setInventoryInitialStatus('Inventario inicial no encontrado para editar.', { error: true });
+        return;
+      }
+
+      editingInventoryInitialMovementId = String(movement.id);
+      if (inventoryInitialProductInput) {
+        inventoryInitialProductInput.value = String(movement.productoId || '');
+      }
+      updateInventoryInitialLinkVisibility();
+      if (inventoryInitialLinkInput) {
+        inventoryInitialLinkInput.value = getInventoryInitialLinkedValue(movement);
+      }
+      if (inventoryInitialDateInput) {
+        inventoryInitialDateInput.value = getDateInputValue(movement.fecha || movement.createdAt, getTodayInputValue());
+      }
+      if (inventoryInitialQuantityInput) {
+        inventoryInitialQuantityInput.value = Number(movement.cantidad || 0);
+      }
+      if (inventoryInitialUnitCostInput) {
+        inventoryInitialUnitCostInput.value = Number(movement.costoUnitario || 0);
+      }
+      if (inventoryInitialNoteInput) {
+        inventoryInitialNoteInput.value = movement.observacion || '';
+      }
+      updateInventoryInitialSubmitState();
+      syncSearchablePickerTrigger(inventoryInitialProductInput);
+      setInventoryInitialStatus('Editando inventario inicial. Puedes actualizarlo aunque ya tenga movimientos relacionados.');
+      inventoryInitialForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
     function renderInventoryInitialRecords() {
       if (!inventoryInitialRecords) return;
       const rows = state.inventoryMovements
@@ -7202,7 +7253,10 @@
                 <td>${escapeHtml(formatInventoryQuantity(movement.cantidad || 0))}</td>
                 <td>${escapeHtml(formatCurrency(movement.costoUnitario || 0))}</td>
                 <td>${escapeHtml(movement.observacion || '-')}</td>
-                <td><button type="button" class="secondary-btn cancel-record-btn" data-inventory-initial-delete="${escapeHtml(String(movement.id || ''))}" title="Eliminar inventario inicial">Eliminar</button></td>
+                <td>
+                  <button type="button" class="secondary-btn action-icon-btn" data-inventory-initial-edit="${escapeHtml(String(movement.id || ''))}" title="Editar inventario inicial" aria-label="Editar inventario inicial">✎</button>
+                  <button type="button" class="delete-product action-icon-btn" data-inventory-initial-delete="${escapeHtml(String(movement.id || ''))}" title="Eliminar inventario inicial" aria-label="Eliminar inventario inicial">🗑</button>
+                </td>
               </tr>
             `).join('')}
           </tbody>
@@ -7212,9 +7266,13 @@
       inventoryInitialRecords.querySelectorAll('[data-inventory-initial-delete]').forEach(button => {
         button.addEventListener('click', () => deleteInventoryInitialMovement(button.dataset.inventoryInitialDelete));
       });
+      inventoryInitialRecords.querySelectorAll('[data-inventory-initial-edit]').forEach(button => {
+        button.addEventListener('click', () => startEditInventoryInitialMovement(button.dataset.inventoryInitialEdit));
+      });
     }
 
     function resetInventoryMovementForms() {
+      editingInventoryInitialMovementId = null;
       const today = getTodayInputValue();
       if (inventoryInitialForm) inventoryInitialForm.reset();
       if (inventoryAdjustmentForm) inventoryAdjustmentForm.reset();
@@ -7228,6 +7286,7 @@
       setInventoryAdjustmentStatus('Usa los ajustes para corregir diferencias por entrada o salida de stock.');
       updateInventoryAdjustmentCostVisibility();
       updateInventoryInitialLinkVisibility();
+      updateInventoryInitialSubmitState();
       syncSearchablePickerTrigger(inventoryInitialProductInput);
       syncSearchablePickerTrigger(inventoryAdjustmentProductInput);
     }
@@ -9037,17 +9096,21 @@
     exportInventoryKardexExcelButton.addEventListener('click', exportInventoryKardexExcel);
     exportInventoryKardexPdfButton.addEventListener('click', exportInventoryKardexPdf);
     inventoryInitialProductInput.addEventListener('change', updateInventoryInitialLinkVisibility);
+    cancelInventoryInitialEditButton?.addEventListener('click', resetInventoryMovementForms);
     inventoryAdjustmentTypeInput.addEventListener('change', updateInventoryAdjustmentCostVisibility);
     inventoryInitialForm.addEventListener('submit', async event => {
       event.preventDefault();
-      setInventoryInitialStatus('Guardando inventario inicial...');
-      if (!setLoadingState(inventoryInitialForm, true, { label: 'Guardando...' })) {
+      const isEditingInitial = Boolean(editingInventoryInitialMovementId);
+      setInventoryInitialStatus(isEditingInitial ? 'Actualizando inventario inicial...' : 'Guardando inventario inicial...');
+      if (!setLoadingState(inventoryInitialForm, true, { label: isEditingInitial ? 'Actualizando...' : 'Guardando...' })) {
         return;
       }
       try {
         const initialLinkedTarget = parseLinkedTargetValue(inventoryInitialLinkInput?.value || '');
-        const response = await fetch(buildApiUrl('/inventario/inicial'), {
-          method: 'POST',
+        const response = await fetch(buildApiUrl(isEditingInitial
+          ? `/inventario/inicial/${encodeURIComponent(editingInventoryInitialMovementId)}`
+          : '/inventario/inicial'), {
+          method: isEditingInitial ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             productId: inventoryInitialProductInput.value,
@@ -9061,18 +9124,19 @@
           })
         });
         if (!response.ok) {
-          throw new Error(await buildApiError(response, 'No se pudo guardar el inventario inicial.'));
+          throw new Error(await buildApiError(response, isEditingInitial ? 'No se pudo actualizar el inventario inicial.' : 'No se pudo guardar el inventario inicial.'));
         }
         await fetchProductos();
         resetInventoryMovementForms();
-        setInventoryInitialStatus('Inventario inicial registrado correctamente.');
-        showSuccess('Inventario inicial registrado correctamente.');
+        setInventoryInitialStatus(isEditingInitial ? 'Inventario inicial actualizado correctamente.' : 'Inventario inicial registrado correctamente.');
+        showSuccess(isEditingInitial ? 'Inventario inicial actualizado correctamente.' : 'Inventario inicial registrado correctamente.');
       } catch (error) {
         console.error(error);
         setInventoryInitialStatus(error.message, { error: true });
         showError(error.message);
       } finally {
         setLoadingState(inventoryInitialForm, false);
+        updateInventoryInitialSubmitState();
       }
     });
     inventoryAdjustmentForm.addEventListener('submit', async event => {

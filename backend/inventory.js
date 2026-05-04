@@ -211,6 +211,139 @@ function createInventoryHandlers({
       res.status(201).json({ message: "Inventario inicial registrado correctamente.", movement, producto });
     }));
 
+    app.patch("/inventario/inicial/:id", asyncHandler(async (req, res) => {
+      await hydrateStore();
+      const { id } = req.params;
+      if (!id || typeof id !== "string" || !id.trim()) {
+        return res.status(400).json({ error: "ID invalido" });
+      }
+
+      const inventoryMovements = getInventoryMovements();
+      const movement = inventoryMovements.find(item => String(item.id) === String(id));
+      if (!movement || String(movement.tipo || "").trim().toLowerCase() !== "inventario-inicial") {
+        return res.status(404).json({ error: "Inventario inicial no encontrado." });
+      }
+
+      const productId = String(req.body?.productId || "").trim();
+      const quantity = Number(req.body?.quantity);
+      const unitCost = Number(req.body?.unitCost);
+      const note = String(req.body?.note || "").trim();
+      const movementDate = req.body?.date ? new Date(req.body.date) : new Date(movement.fecha || movement.createdAt || Date.now());
+      const flavorId = req.body?.flavorId !== undefined && req.body?.flavorId !== null ? String(req.body.flavorId).trim() : "";
+      const toppingId = req.body?.toppingId !== undefined && req.body?.toppingId !== null ? String(req.body.toppingId).trim() : "";
+      const sauceId = req.body?.sauceId !== undefined && req.body?.sauceId !== null ? String(req.body.sauceId).trim() : "";
+
+      if (!productId) {
+        return res.status(400).json({ error: "Selecciona un producto valido." });
+      }
+      if (Number.isNaN(quantity) || quantity <= 0) {
+        return res.status(400).json({ error: "La cantidad inicial debe ser mayor a cero." });
+      }
+      if (Number.isNaN(unitCost) || unitCost < 0) {
+        return res.status(400).json({ error: "El costo unitario del inventario inicial no es valido." });
+      }
+      if (Number.isNaN(movementDate.getTime())) {
+        return res.status(400).json({ error: "La fecha del inventario inicial no es valida." });
+      }
+
+      const productos = getProductos();
+      const previousProduct = productos.find(item => String(item.id) === String(movement.productoId));
+      const nextProduct = productos.find(item => String(item.id) === productId);
+      if (!previousProduct || !nextProduct) {
+        return res.status(404).json({ error: "Producto no encontrado." });
+      }
+
+      const linkedFlavors = getSabores().filter(flavor => String(flavor.materiaPrimaId || "") === productId);
+      const linkedToppings = getToppings().filter(topping => String(topping.materiaPrimaId || "") === productId);
+      const linkedSauces = getSalsas().filter(sauce => String(sauce.materiaPrimaId || "") === productId);
+      let selectedFlavor = null;
+      let selectedTopping = null;
+      let selectedSauce = null;
+
+      if (linkedFlavors.length || linkedToppings.length || linkedSauces.length) {
+        const selectedLinksCount = [flavorId, toppingId, sauceId].filter(Boolean).length;
+        if (selectedLinksCount !== 1) {
+          return res.status(400).json({ error: "Selecciona el sabor, topping o salsa/aderezo al que pertenece este inventario inicial." });
+        }
+
+        if (flavorId) {
+          selectedFlavor = linkedFlavors.find(flavor => String(flavor.id) === flavorId) || null;
+          if (!selectedFlavor) {
+            return res.status(400).json({ error: "Selecciona un sabor valido para esta materia prima." });
+          }
+        }
+
+        if (toppingId) {
+          selectedTopping = linkedToppings.find(topping => String(topping.id) === toppingId) || null;
+          if (!selectedTopping) {
+            return res.status(400).json({ error: "Selecciona un topping valido para esta materia prima." });
+          }
+        }
+
+        if (sauceId) {
+          selectedSauce = linkedSauces.find(sauce => String(sauce.id) === sauceId) || null;
+          if (!selectedSauce) {
+            return res.status(400).json({ error: "Selecciona una salsa/aderezo valido para esta materia prima." });
+          }
+        }
+      }
+
+      const previousQuantity = Number(movement.cantidad || 0);
+      const previousProductStock = Number(previousProduct.stock || 0);
+      const nextProductStock = Number(nextProduct.stock || 0);
+      if (String(previousProduct.id) === String(nextProduct.id)) {
+        nextProduct.stock = nextProductStock + (quantity - previousQuantity);
+      } else {
+        previousProduct.stock = previousProductStock - previousQuantity;
+        nextProduct.stock = nextProductStock + quantity;
+      }
+
+      const linkedName = selectedFlavor?.nombre || selectedTopping?.nombre || selectedSauce?.nombre || "";
+      const linkedDetail = selectedFlavor
+        ? `Sabor ${selectedFlavor.nombre}`
+        : selectedTopping
+          ? `Topping ${selectedTopping.nombre}`
+          : selectedSauce
+            ? `Salsa/aderezo ${selectedSauce.nombre}`
+            : "";
+
+      movement.productoId = String(nextProduct.id);
+      movement.productoNombre = String(nextProduct.nombre || "").trim();
+      movement.productoTipo = nextProduct.modoControl || nextProduct.tipo || nextProduct.type || movement.productoTipo || null;
+      movement.direccion = "entrada";
+      movement.cantidad = quantity;
+      movement.fecha = movementDate.toISOString();
+      movement.observacion = note || (linkedDetail ? `Carga de inventario inicial para ${linkedDetail}` : "Carga de inventario inicial");
+      movement.referencia = "Inventario inicial";
+      movement.saldoAnterior = String(previousProduct.id) === String(nextProduct.id)
+        ? nextProductStock
+        : previousProductStock;
+      movement.saldoNuevo = String(previousProduct.id) === String(nextProduct.id)
+        ? nextProduct.stock
+        : nextProduct.stock;
+      movement.costoUnitario = unitCost;
+      movement.costoTotal = quantity * unitCost;
+      movement.flavorId = selectedFlavor ? selectedFlavor.id : null;
+      movement.flavorName = selectedFlavor ? selectedFlavor.nombre : null;
+      movement.toppingId = selectedTopping ? selectedTopping.id : null;
+      movement.toppingName = selectedTopping ? selectedTopping.nombre : null;
+      movement.sauceId = selectedSauce ? selectedSauce.id : null;
+      movement.sauceName = selectedSauce ? selectedSauce.nombre : null;
+      movement.linkedName = linkedName || null;
+      movement.updatedAt = new Date().toISOString();
+
+      const batch = [
+        { type: "set", collection: collections.productos, id: previousProduct.id, data: previousProduct },
+        { type: "set", collection: collections.inventoryMovements, id: movement.id, data: movement }
+      ];
+      if (String(previousProduct.id) !== String(nextProduct.id)) {
+        batch.splice(1, 0, { type: "set", collection: collections.productos, id: nextProduct.id, data: nextProduct });
+      }
+
+      await commitBatch(batch);
+      res.json({ message: "Inventario inicial actualizado correctamente.", movement, producto: nextProduct });
+    }));
+
     app.delete("/inventario/inicial/:id", asyncHandler(async (req, res) => {
       await hydrateStore();
       const { id } = req.params;
