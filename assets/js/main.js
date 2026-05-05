@@ -720,6 +720,7 @@
     let renderSaleReceivables = () => {};
     let salesComposer = null;
     const mobileNavMediaQuery = window.matchMedia('(max-width: 900px)');
+    let pendingAuthenticatedRoute = null;
     function getSavedActiveTab() {
       try {
         const savedTab = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
@@ -744,6 +745,134 @@
         return preferredTab;
       }
       return MODULE_PERMISSION_KEYS.find(key => permissions[key]) || 'dashboard';
+    }
+
+    const DEFAULT_SUBROUTES = {
+      dashboard: 'overview',
+      compras: 'new',
+      ventas: 'new',
+      pagos: 'new',
+      efectivo: 'cash',
+      sabores: 'flavors',
+      inventario: 'summary'
+    };
+
+    const VALID_SUBROUTES = {
+      dashboard: ['overview', 'cashflow', 'income-statement'],
+      compras: ['new', 'registro', 'payables'],
+      ventas: ['new', 'registro', 'receivables'],
+      pagos: ['new', 'registro', 'pending', 'catalog'],
+      efectivo: ['cash', 'bank', 'transfers', 'settings', 'external'],
+      sabores: ['flavors', 'toppings', 'sauces'],
+      inventario: ['summary', 'kardex', 'initial', 'adjustments']
+    };
+
+    function getDefaultSubroute(moduleName) {
+      return DEFAULT_SUBROUTES[moduleName] || '';
+    }
+
+    function isValidSubroute(moduleName, subroute) {
+      const validSubroutes = VALID_SUBROUTES[moduleName];
+      return !validSubroutes || validSubroutes.includes(subroute);
+    }
+
+    function normalizeRouteParts(moduleName = '', subroute = '') {
+      let normalizedModule = String(moduleName || '').trim().toLowerCase();
+      let normalizedSubroute = String(subroute || '').trim().toLowerCase();
+      const validModules = ['dashboard', 'ingreso', 'compras', 'ventas', 'pagos', 'efectivo', 'sabores', 'inventario', 'seguridad'];
+
+      if (normalizedModule === 'login') {
+        return { moduleName: 'login', subroute: '' };
+      }
+
+      if (!validModules.includes(normalizedModule)) {
+        normalizedModule = getFirstAccessibleModule(state.activeTab || 'dashboard');
+      }
+      if (!canAccessModule(normalizedModule)) {
+        normalizedModule = getFirstAccessibleModule(normalizedModule);
+      }
+      if (!isValidSubroute(normalizedModule, normalizedSubroute)) {
+        normalizedSubroute = getDefaultSubroute(normalizedModule);
+      }
+      return { moduleName: normalizedModule, subroute: normalizedSubroute };
+    }
+
+    function parseCurrentRoute() {
+      const rawHash = String(window.location.hash || '').replace(/^#\/?/, '');
+      const [moduleName = '', subroute = ''] = rawHash.split('/').map(part => decodeURIComponent(part || ''));
+      return normalizeRouteParts(moduleName, subroute);
+    }
+
+    function buildRouteHash(moduleName, subroute = '') {
+      return `#/${encodeURIComponent(moduleName)}${subroute ? `/${encodeURIComponent(subroute)}` : ''}`;
+    }
+
+    function isAuthenticatedRouteAvailable() {
+      return Boolean(state.auth?.token && state.auth?.user && !document.body.classList.contains('auth-locked'));
+    }
+
+    function setLoginRoute({ replace = true } = {}) {
+      document.title = 'Login | Heladeria MESA';
+      syncRouteHash('login', '', { replace });
+    }
+
+    function capturePendingAuthenticatedRoute() {
+      const route = parseCurrentRoute();
+      if (route.moduleName !== 'login') {
+        pendingAuthenticatedRoute = route;
+      }
+    }
+
+    function restorePendingAuthenticatedRoute({ replace = true } = {}) {
+      const route = pendingAuthenticatedRoute && pendingAuthenticatedRoute.moduleName !== 'login'
+        ? pendingAuthenticatedRoute
+        : parseCurrentRoute();
+      pendingAuthenticatedRoute = null;
+      if (route.moduleName === 'login') {
+        setActiveTab(getFirstAccessibleModule(state.activeTab || 'dashboard'), {
+          subroute: getDefaultSubroute(getFirstAccessibleModule(state.activeTab || 'dashboard')),
+          updateRoute: true,
+          replaceRoute: replace
+        });
+        return;
+      }
+      setActiveTab(route.moduleName, {
+        subroute: route.subroute,
+        updateRoute: true,
+        replaceRoute: replace
+      });
+    }
+
+    function setRouteButtonState(button, isActive) {
+      button.classList.toggle('active', isActive);
+      if (isActive) {
+        button.setAttribute('aria-current', 'page');
+      } else {
+        button.removeAttribute('aria-current');
+      }
+    }
+
+    function updateDocumentRouteTitle(moduleName, subroute = '') {
+      const moduleButton = Array.from(tabs).find(tab => tab.dataset.tab === moduleName);
+      const moduleLabel = moduleButton ? moduleButton.textContent.trim() : 'Heladeria MESA';
+      const subrouteSelector = subroute
+        ? `[data-dashboard-tab="${subroute}"], [data-tab="${subroute}"], [data-sale-tab="${subroute}"], [data-payment-tab="${subroute}"], [data-fund-tab="${subroute}"], [data-flavor-module-tab="${subroute}"], [data-inventory-tab="${subroute}"]`
+        : '';
+      const subrouteButton = subrouteSelector ? document.querySelector(`#module-${moduleName} ${subrouteSelector}`) : null;
+      const subrouteLabel = subrouteButton ? subrouteButton.textContent.trim() : '';
+      document.title = subrouteLabel ? `${moduleLabel} - ${subrouteLabel} | Heladeria MESA` : `${moduleLabel} | Heladeria MESA`;
+    }
+
+    function syncRouteHash(moduleName, subroute = '', { replace = false } = {}) {
+      const nextHash = buildRouteHash(moduleName, subroute);
+      if (window.location.hash === nextHash) {
+        return;
+      }
+      if (replace) {
+        window.history.replaceState(null, '', nextHash);
+        return;
+      }
+      window.location.hash = nextHash;
     }
 
     function buildPermissionCheckboxMarkup(namePrefix, permissions, { disabled = false } = {}) {
@@ -1454,8 +1583,9 @@
     renderEnvironmentIndicator();
 
     tabs.forEach(tab => {
-      tab.addEventListener('click', () => setActiveTab(tab.dataset.tab));
+      tab.addEventListener('click', () => setActiveTab(tab.dataset.tab, { subroute: getDefaultSubroute(tab.dataset.tab) }));
     });
+    window.addEventListener('hashchange', () => applyRouteFromLocation());
 
     if (mobileNavToggleButton) {
       mobileNavToggleButton.addEventListener('click', () => {
@@ -1515,6 +1645,7 @@
         persistAuthUser(result.user || null);
         authLoginForm.reset();
         await startAuthenticatedApp();
+        restorePendingAuthenticatedRoute({ replace: true });
         showSuccess(`Bienvenido, ${result.user?.nombre || result.user?.username || 'usuario'}.`);
       } catch (error) {
         setAuthStatus(error.message, { error: true });
@@ -1560,6 +1691,7 @@
         persistAuthUser(result.user || null);
         authBootstrapForm.reset();
         await startAuthenticatedApp();
+        restorePendingAuthenticatedRoute({ replace: true });
         showSuccess('Administrador creado correctamente.');
       } catch (error) {
         setAuthStatus(error.message, { error: true });
@@ -1692,7 +1824,9 @@
     openProductModalButton.addEventListener('click', openNewProductModal);
     closeProductModalButton.addEventListener('click', dismissProductModal);
     logoutButton.addEventListener('click', () => {
+      capturePendingAuthenticatedRoute();
       clearAuthenticatedState({ message: 'Sesión cerrada correctamente.' });
+      setLoginRoute({ replace: true });
     });
     themeToggleButton.addEventListener('click', () => {
       applyTheme(document.body.classList.contains('theme-dark') ? 'light' : 'dark');
@@ -3337,17 +3471,82 @@
       mobileNavCurrentModule.textContent = activeTabButton ? activeTabButton.textContent.trim() : 'Menú';
     }
 
-    function setActiveTab(tabName) {
+    function applyModuleSubroute(moduleName, subroute = '') {
+      const normalizedSubroute = isValidSubroute(moduleName, subroute) ? subroute : getDefaultSubroute(moduleName);
+
+      if (moduleName === 'dashboard') {
+        dashboardTabs.forEach(button => setRouteButtonState(button, button.dataset.dashboardTab === normalizedSubroute));
+        dashboardOverviewPanel.classList.toggle('active', normalizedSubroute === 'overview');
+        dashboardCashflowPanel.classList.toggle('active', normalizedSubroute === 'cashflow');
+        dashboardIncomeStatementPanel.classList.toggle('active', normalizedSubroute === 'income-statement');
+        renderDashboard();
+      }
+
+      if (moduleName === 'compras') {
+        purchaseTabs.forEach(button => setRouteButtonState(button, button.dataset.tab === normalizedSubroute));
+        purchaseNewPanel.classList.toggle('active', normalizedSubroute === 'new');
+        purchaseRegistroPanel.classList.toggle('active', normalizedSubroute === 'registro');
+        purchasePayablesPanel.classList.toggle('active', normalizedSubroute === 'payables');
+      }
+
+      if (moduleName === 'ventas') {
+        saleTabs.forEach(button => setRouteButtonState(button, button.dataset.saleTab === normalizedSubroute));
+        saleNewPanel.classList.toggle('active', normalizedSubroute === 'new');
+        saleRegistroPanel.classList.toggle('active', normalizedSubroute === 'registro');
+        saleReceivablesPanel.classList.toggle('active', normalizedSubroute === 'receivables');
+      }
+
+      if (moduleName === 'pagos') {
+        paymentTabs.forEach(button => setRouteButtonState(button, button.dataset.paymentTab === normalizedSubroute));
+        paymentNewPanel.classList.toggle('active', normalizedSubroute === 'new');
+        paymentRegistroPanel.classList.toggle('active', normalizedSubroute === 'registro');
+        paymentPendingPanel.classList.toggle('active', normalizedSubroute === 'pending');
+        paymentCatalogPanel.classList.toggle('active', normalizedSubroute === 'catalog');
+      }
+
+      if (moduleName === 'efectivo') {
+        const isOverviewTab = normalizedSubroute === 'cash' || normalizedSubroute === 'bank';
+        fundTabs.forEach(button => setRouteButtonState(button, button.dataset.fundTab === normalizedSubroute));
+        fundOverviewPanel.classList.toggle('field-hidden', !isOverviewTab);
+        syncFundSummaryCards(normalizedSubroute);
+        fundSettingsPanel.classList.toggle('active', normalizedSubroute === 'settings');
+        fundCashPanel.classList.toggle('active', normalizedSubroute === 'cash');
+        fundBankPanel.classList.toggle('active', normalizedSubroute === 'bank');
+        fundTransfersPanel.classList.toggle('active', normalizedSubroute === 'transfers');
+        fundExternalPanel.classList.toggle('active', normalizedSubroute === 'external');
+      }
+
+      if (moduleName === 'sabores') {
+        flavorModuleTabs.forEach(button => setRouteButtonState(button, button.dataset.flavorModuleTab === normalizedSubroute));
+        flavorModuleFlavorsPanel.classList.toggle('active', normalizedSubroute === 'flavors');
+        flavorModuleToppingsPanel.classList.toggle('active', normalizedSubroute === 'toppings');
+        flavorModuleSaucesPanel.classList.toggle('active', normalizedSubroute === 'sauces');
+      }
+
+      if (moduleName === 'inventario') {
+        inventoryTabs.forEach(button => setRouteButtonState(button, button.dataset.inventoryTab === normalizedSubroute));
+        inventorySummaryPanel.classList.toggle('active', normalizedSubroute === 'summary');
+        inventoryKardexPanel.classList.toggle('active', normalizedSubroute === 'kardex');
+        inventoryInitialPanel.classList.toggle('active', normalizedSubroute === 'initial');
+        inventoryAdjustmentsPanel.classList.toggle('active', normalizedSubroute === 'adjustments');
+        renderInventario();
+      }
+    }
+
+    function setActiveTab(tabName, options = {}) {
+      const { subroute = '', updateRoute = true, replaceRoute = false } = options;
       if (!canAccessModule(tabName)) {
         tabName = getFirstAccessibleModule();
       }
+      const normalizedSubroute = isValidSubroute(tabName, subroute) ? subroute : getDefaultSubroute(tabName);
       state.activeTab = tabName;
       try {
         window.localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tabName);
       } catch (error) {
       }
-      tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.tab === tabName));
+      tabs.forEach(tab => setRouteButtonState(tab, tab.dataset.tab === tabName));
       modulePanels.forEach(panel => panel.classList.toggle('active', panel.id === `module-${tabName}`));
+      applyModuleSubroute(tabName, normalizedSubroute);
       syncMobileNavCurrentModule(tabName);
       closeMobileNav();
       if (tabName === 'dashboard') {
@@ -3359,6 +3558,35 @@
       if (tabName === 'sabores') {
         renderFlavorList();
       }
+      if (updateRoute) {
+        syncRouteHash(tabName, normalizedSubroute, { replace: replaceRoute });
+      }
+      updateDocumentRouteTitle(tabName, normalizedSubroute);
+    }
+
+    function applyRouteFromLocation({ replace = false } = {}) {
+      const route = parseCurrentRoute();
+      if (route.moduleName === 'login') {
+        if (isAuthenticatedRouteAvailable()) {
+          restorePendingAuthenticatedRoute({ replace: true });
+        } else {
+          document.title = 'Login | Heladeria MESA';
+          if (!String(window.location.hash || '').match(/^#\/?login$/)) {
+            setLoginRoute({ replace });
+          }
+        }
+        return;
+      }
+      if (!isAuthenticatedRouteAvailable()) {
+        pendingAuthenticatedRoute = route;
+        setLoginRoute({ replace: true });
+        return;
+      }
+      setActiveTab(route.moduleName, {
+        subroute: route.subroute,
+        updateRoute: true,
+        replaceRoute: replace
+      });
     }
 
     function buildOptions(selectedId = '') {
@@ -4167,11 +4395,7 @@
       if (cancelPaymentEditButton) {
         cancelPaymentEditButton.classList.remove('field-hidden');
       }
-      paymentTabs.forEach(button => button.classList.toggle('active', button.dataset.paymentTab === 'new'));
-      paymentNewPanel.classList.add('active');
-      paymentRegistroPanel.classList.remove('active');
-      paymentPendingPanel.classList.remove('active');
-      paymentCatalogPanel.classList.remove('active');
+      setActiveTab('pagos', { subroute: 'new' });
       paymentStatus.className = 'status';
       paymentStatus.textContent = `Editando pago: ${payment.descripcion || 'registro'}.`;
     }
@@ -4194,13 +4418,7 @@
         setExternalDebtStatus('No se encontró la deuda externa seleccionada.', { error: true });
         return;
       }
-      fundTabs.forEach(button => button.classList.toggle('active', button.dataset.fundTab === 'external'));
-      fundOverviewPanel.classList.add('field-hidden');
-      fundSettingsPanel.classList.remove('active');
-      fundCashPanel.classList.remove('active');
-      fundBankPanel.classList.remove('active');
-      fundTransfersPanel.classList.remove('active');
-      fundExternalPanel.classList.add('active');
+      setActiveTab('efectivo', { subroute: 'external' });
       editingExternalDebtId = String(debt.id);
       externalDebtTypeInput.value = debt.type || 'por-pagar';
       externalDebtCategoryInput.value = resolvePaymentCategoryValue(debt.categoria || debt.category || 'gasto');
@@ -8862,10 +9080,7 @@
     purchaseTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.tab;
-        purchaseTabs.forEach(button => button.classList.toggle('active', button === tab));
-        purchaseNewPanel.classList.toggle('active', tabName === 'new');
-        purchaseRegistroPanel.classList.toggle('active', tabName === 'registro');
-        purchasePayablesPanel.classList.toggle('active', tabName === 'payables');
+        setActiveTab('compras', { subroute: tabName });
       });
     });
 
@@ -9144,12 +9359,7 @@
     inventoryTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.inventoryTab;
-        inventoryTabs.forEach(button => button.classList.toggle('active', button === tab));
-        inventorySummaryPanel.classList.toggle('active', tabName === 'summary');
-        inventoryKardexPanel.classList.toggle('active', tabName === 'kardex');
-        inventoryInitialPanel.classList.toggle('active', tabName === 'initial');
-        inventoryAdjustmentsPanel.classList.toggle('active', tabName === 'adjustments');
-        renderInventario();
+        setActiveTab('inventario', { subroute: tabName });
       });
     });
     inventorySummarySearchInput.addEventListener('input', renderInventorySummary);
@@ -9310,19 +9520,13 @@
     dashboardTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.dashboardTab;
-        dashboardTabs.forEach(button => button.classList.toggle('active', button === tab));
-        dashboardOverviewPanel.classList.toggle('active', tabName === 'overview');
-        dashboardCashflowPanel.classList.toggle('active', tabName === 'cashflow');
-        dashboardIncomeStatementPanel.classList.toggle('active', tabName === 'income-statement');
+        setActiveTab('dashboard', { subroute: tabName });
       });
     });
     saleTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.saleTab;
-        saleTabs.forEach(button => button.classList.toggle('active', button === tab));
-        saleNewPanel.classList.toggle('active', tabName === 'new');
-        saleRegistroPanel.classList.toggle('active', tabName === 'registro');
-        saleReceivablesPanel.classList.toggle('active', tabName === 'receivables');
+        setActiveTab('ventas', { subroute: tabName });
       });
     });
 
@@ -9421,11 +9625,7 @@
     paymentTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.paymentTab;
-        paymentTabs.forEach(button => button.classList.toggle('active', button === tab));
-        paymentNewPanel.classList.toggle('active', tabName === 'new');
-        paymentRegistroPanel.classList.toggle('active', tabName === 'registro');
-        paymentPendingPanel.classList.toggle('active', tabName === 'pending');
-        paymentCatalogPanel.classList.toggle('active', tabName === 'catalog');
+        setActiveTab('pagos', { subroute: tabName });
       });
     });
 
@@ -9441,15 +9641,7 @@
     fundTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.fundTab;
-        const isOverviewTab = tabName === 'cash' || tabName === 'bank';
-        fundTabs.forEach(button => button.classList.toggle('active', button === tab));
-        fundOverviewPanel.classList.toggle('field-hidden', !isOverviewTab);
-        syncFundSummaryCards(tabName);
-        fundSettingsPanel.classList.toggle('active', tabName === 'settings');
-        fundCashPanel.classList.toggle('active', tabName === 'cash');
-        fundBankPanel.classList.toggle('active', tabName === 'bank');
-        fundTransfersPanel.classList.toggle('active', tabName === 'transfers');
-        fundExternalPanel.classList.toggle('active', tabName === 'external');
+        setActiveTab('efectivo', { subroute: tabName });
       });
     });
 
@@ -9779,15 +9971,12 @@
     flavorModuleTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = tab.dataset.flavorModuleTab;
-        flavorModuleTabs.forEach(button => button.classList.toggle('active', button === tab));
-        flavorModuleFlavorsPanel.classList.toggle('active', tabName === 'flavors');
-        flavorModuleToppingsPanel.classList.toggle('active', tabName === 'toppings');
-        flavorModuleSaucesPanel.classList.toggle('active', tabName === 'sauces');
+        setActiveTab('sabores', { subroute: tabName });
       });
     });
 
     applyTheme(getSavedTheme());
-    setActiveTab(state.activeTab);
+    applyRouteFromLocation({ replace: true });
     applyDefaultDateValues();
     updateDashboardCashflowFilterVisibility();
     setLastRegisteredSaleForPrint(null);
