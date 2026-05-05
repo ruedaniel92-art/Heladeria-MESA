@@ -2095,12 +2095,18 @@
         return total + items.reduce((sum, item) => {
           const flavors = Array.isArray(item.sabores) ? item.sabores : [];
           const components = Array.isArray(item.componentes) ? item.componentes : [];
+          const ingredients = Array.isArray(item.ingredientes) ? item.ingredientes : [];
           const flavorConsumption = flavors.reduce((flavorSum, flavor) => {
             return String(flavor.id || '') === normalizedFlavorId
               ? flavorSum + Number(flavor.porciones || 0)
               : flavorSum;
           }, 0);
-          return sum + flavorConsumption + components.reduce((componentSum, component) => {
+          const ingredientConsumption = ingredients.reduce((ingredientSum, ingredient) => {
+            return String(ingredient.flavorId || '') === normalizedFlavorId
+              ? ingredientSum + Number(ingredient.cantidad || 0)
+              : ingredientSum;
+          }, 0);
+          return sum + flavorConsumption + ingredientConsumption + components.reduce((componentSum, component) => {
             return String(component.sourceCategory || '') === 'sabor' && String(component.sourceId || '') === normalizedFlavorId
               ? componentSum + Number(component.cantidadTotal || component.cantidad || 0)
               : componentSum;
@@ -2935,7 +2941,9 @@
       return state.sales.reduce((sum, venta) => sum + (Array.isArray(venta.items)
         ? venta.items.reduce((itemSum, item) => itemSum + (Array.isArray(item.sabores)
           ? item.sabores.reduce((flavorSum, flavor) => flavorSum + (String(flavor.id) === String(flavorId) ? Number(flavor.porciones || 0) : 0), 0)
-          : 0), 0)
+          : 0) + (Array.isArray(item.ingredientes)
+            ? item.ingredientes.reduce((ingredientSum, ingredient) => ingredientSum + (String(ingredient.flavorId) === String(flavorId) ? Number(ingredient.cantidad || 0) : 0), 0)
+            : 0), 0)
         : 0), 0);
     }
 
@@ -2949,11 +2957,51 @@
       `).join('');
     }
 
+    function getIngredientFlavorTargets(productId) {
+      return getFlavorsByRawMaterialId(productId);
+    }
+
+    function buildRecipeFlavorOptions(productId, selectedId = '') {
+      const targets = getIngredientFlavorTargets(productId);
+      if (!targets.length) {
+        return '<option value="">Sin sabores vinculados</option>';
+      }
+      return [
+        '<option value="">Seleccionar sabor</option>',
+        ...targets.map(flavor => `<option value="${escapeHtml(flavor.id)}" data-name="${escapeHtml(flavor.nombre)}" ${String(flavor.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(flavor.nombre)}</option>`)
+      ].join('');
+    }
+
+    function updateRecipeRowFlavorField(row, preferredFlavorId = '') {
+      const ingredientSelect = row.querySelector('.ingredient-source');
+      const flavorField = row.querySelector('.ingredient-flavor-field');
+      const flavorSelect = row.querySelector('.ingredient-flavor');
+      if (!ingredientSelect || !flavorField || !flavorSelect) {
+        return;
+      }
+      const productId = ingredientSelect.value;
+      const targets = getIngredientFlavorTargets(productId);
+      const currentValue = String(preferredFlavorId || flavorSelect.value || '').trim();
+      const shouldShow = targets.length > 0;
+      flavorField.classList.remove('field-hidden');
+      flavorSelect.required = shouldShow;
+      flavorSelect.disabled = !shouldShow;
+      flavorSelect.innerHTML = buildRecipeFlavorOptions(productId, currentValue);
+      flavorSelect.value = currentValue;
+      if (!flavorSelect.value && targets.length === 1) {
+        flavorSelect.value = String(targets[0].id);
+      }
+      if (!flavorSelect.value && currentValue) {
+        flavorSelect.value = '';
+      }
+    }
+
     function updateIngredientUnit(event) {
       const select = event.currentTarget;
       const unit = select.selectedOptions[0]?.dataset.medida || '';
       const unitLabel = select.closest('.recipe-row').querySelector('.ingredient-unit');
       unitLabel.textContent = unit ? `${unit}` : '';
+      updateRecipeRowFlavorField(select.closest('.recipe-row'));
     }
 
     function addRecipeIngredientRow() {
@@ -2975,6 +3023,11 @@
             ${buildMateriaPrimaOptions()}
           </select>
         </div>
+        <div class="field ingredient-flavor-field">
+          <select class="ingredient-flavor">
+            <option value="">Sin sabores vinculados</option>
+          </select>
+        </div>
         <div class="field">
           <input type="number" class="ingredient-amount" min="0.01" step="0.01" placeholder="Ej. 1.5" required />
           <span class="ingredient-unit"></span>
@@ -2994,10 +3047,16 @@
     function refreshRecipeRowsOptions() {
       recipeRows.querySelectorAll('.ingredient-source').forEach(select => {
         const currentValue = select.value;
+        const row = select.closest('.recipe-row');
+        const currentFlavorValue = row?.querySelector('.ingredient-flavor')?.value || '';
         select.innerHTML = buildMateriaPrimaOptions(currentValue);
         select.value = currentValue;
         if (!select.value && currentValue) {
           select.value = currentValue;
+        }
+        if (row) {
+          updateRecipeRowFlavorField(row, currentFlavorValue);
+          updateIngredientUnit({ currentTarget: select });
         }
       });
     }
@@ -3331,7 +3390,7 @@
       const idStr = String(productId);
       const purchaseMatch = state.purchases.some(invoice => Array.isArray(invoice.items) && invoice.items.some(item => String(item.id) === idStr));
       const saleMatch = state.sales.some(invoice => Array.isArray(invoice.items)
-        ? invoice.items.some(item => String(item.id) === idStr)
+        ? invoice.items.some(item => String(item.id) === idStr || (Array.isArray(item.ingredientes) && item.ingredientes.some(ingredient => String(ingredient.id) === idStr)))
         : String(invoice.id) === idStr);
       const inventoryMatch = state.inventoryMovements.some(movement => String(movement.productoId) === idStr);
       return purchaseMatch || saleMatch || inventoryMatch;
@@ -7442,6 +7501,7 @@
           ingSelect.value = ing.id || ing.nombre;
           lastRow.querySelector('.ingredient-amount').value = Number(ing.cantidad);
           updateIngredientUnit({ currentTarget: ingSelect });
+          updateRecipeRowFlavorField(lastRow, ing.flavorId || '');
         });
       }
       productModalTitle.textContent = 'Editar producto';
@@ -8233,11 +8293,14 @@
       if (usesProductRecipe) {
         recipeRows.querySelectorAll('.recipe-row').forEach(row => {
           const select = row.querySelector('.ingredient-source');
+          const flavorSelect = row.querySelector('.ingredient-flavor');
           const cantidad = Number(row.querySelector('.ingredient-amount').value);
           const id = select.value;
           const nombre = select.selectedOptions[0]?.dataset.name || select.value;
+          const flavorId = String(flavorSelect?.value || '').trim();
+          const flavorName = flavorId ? (flavorSelect.selectedOptions[0]?.dataset.name || '') : '';
           if (id && nombre) {
-            ingredientes.push({ id, nombre, cantidad });
+            ingredientes.push({ id, nombre, cantidad, flavorId: flavorId || undefined, flavorName: flavorName || undefined });
           }
         });
       }
@@ -8282,6 +8345,14 @@
       if ((controlMode === 'receta' || controlMode === 'mixto') && (!Array.isArray(newProduct.ingredientes) || !newProduct.ingredientes.length)) {
         setProductStatus('Agrega al menos un ingrediente para los productos con receta.', { error: true });
         showError('Agrega al menos un ingrediente para los productos con receta.');
+        return;
+      }
+      const missingRecipeFlavor = usesProductRecipe && Array.isArray(newProduct.ingredientes)
+        ? newProduct.ingredientes.find(ing => getIngredientFlavorTargets(ing.id).length && !ing.flavorId)
+        : null;
+      if (missingRecipeFlavor) {
+        setProductStatus(`Selecciona el sabor que aplica para ${missingRecipeFlavor.nombre}.`, { error: true });
+        showError(`Selecciona el sabor que aplica para ${missingRecipeFlavor.nombre}.`);
         return;
       }
       if ((controlMode === 'helado-sabores' || controlMode === 'mixto') && (!Number.isInteger(newProduct.pelotasPorUnidad) || newProduct.pelotasPorUnidad <= 0)) {

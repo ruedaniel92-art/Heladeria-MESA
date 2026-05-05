@@ -100,10 +100,15 @@ function createConsumableHelpers({
       const items = Array.isArray(venta.items) ? venta.items : [];
       return total + items.reduce((sum, item) => {
         const flavors = Array.isArray(item.sabores) ? item.sabores : [];
+        const ingredients = Array.isArray(item.ingredientes) ? item.ingredientes : [];
         return sum + flavors.reduce((flavorSum, flavor) => {
           return String(flavor.id || '') === normalizedFlavorId
             ? flavorSum + Number(flavor.porciones || 0)
             : flavorSum;
+        }, 0) + ingredients.reduce((ingredientSum, ingredient) => {
+          return String(ingredient.flavorId || '') === normalizedFlavorId
+            ? ingredientSum + Number(ingredient.cantidad || 0)
+            : ingredientSum;
         }, 0);
       }, 0);
     }, 0);
@@ -528,6 +533,22 @@ function createConsumableHelpers({
               flavor.costoTotalProvisional = provisionalValues.totalForQuantity(flavor.porciones);
             }
             flavor.costoEstado = 'final';
+            saleTouched = true;
+          });
+          const ingredientesItem = Array.isArray(item.ingredientes) ? item.ingredientes : [];
+          ingredientesItem.forEach(ingredient => {
+            if (String(ingredient[config.controlLinkField] || '') !== String(control.id)) {
+              return;
+            }
+            const costValues = getControlCostValues(control, true);
+            ingredient.costoUnitarioFinal = costValues.unitCost;
+            ingredient.costoTotalFinal = costValues.totalForQuantity(ingredient.cantidad);
+            if (ingredient.costoUnitarioProvisional === undefined || ingredient.costoUnitarioProvisional === null) {
+              const provisionalValues = getControlCostValues(control, false);
+              ingredient.costoUnitarioProvisional = provisionalValues.unitCost;
+              ingredient.costoTotalProvisional = provisionalValues.totalForQuantity(ingredient.cantidad);
+            }
+            ingredient.costoEstado = 'final';
             saleTouched = true;
           });
           return;

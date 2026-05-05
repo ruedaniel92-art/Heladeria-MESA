@@ -190,7 +190,7 @@ function createFlavorCatalogHandlers({
         return res.status(404).json({ error: "Sabor no encontrado." });
       }
 
-      const hasSales = getVentas().some(venta => Array.isArray(venta.items) && venta.items.some(item => Array.isArray(item.sabores) && item.sabores.some(flavor => String(flavor.id) === String(id))));
+      const hasSales = getVentas().some(venta => Array.isArray(venta.items) && venta.items.some(item => (Array.isArray(item.sabores) && item.sabores.some(flavor => String(flavor.id) === String(id))) || (Array.isArray(item.ingredientes) && item.ingredientes.some(ingredient => String(ingredient.flavorId) === String(id)))));
       const hasBucketControl = getBaldesControl().some(bucket => String(bucket.saborId) === String(id));
       if (hasSales || hasBucketControl) {
         return res.status(400).json({ error: "No se puede eliminar un sabor usado en ventas." });

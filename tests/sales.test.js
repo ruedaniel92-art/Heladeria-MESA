@@ -665,6 +665,106 @@ module.exports = [
     }
   },
   {
+    name: "venta de receta descuenta el sabor definido en el ingrediente",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          async function createProduct(payload) {
+            const response = await fetch(`${baseUrl}/productos`, {
+              method: "POST",
+              headers: jsonAuthHeaders(token),
+              body: JSON.stringify(payload)
+            });
+            assert.equal(response.status, 201);
+            return (await response.json()).producto;
+          }
+
+          const raw = await createProduct({
+            nombre: "Base receta chocolate",
+            tipo: "materia prima",
+            stockMin: 1,
+            medida: "porcion",
+            rendimientoPorCompra: 20
+          });
+
+          const flavorResponse = await fetch(`${baseUrl}/sabores`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({ nombre: "Chocolate receta", materiaPrimaId: raw.id })
+          });
+          assert.equal(flavorResponse.status, 201);
+          const flavor = (await flavorResponse.json()).sabor;
+
+          const recipeProduct = await createProduct({
+            nombre: "Batido receta chocolate",
+            tipo: "producto terminado",
+            stockMin: 0,
+            precio: 80,
+            modoControl: "receta",
+            ingredientes: [{ id: raw.id, nombre: raw.nombre, cantidad: 3, flavorId: flavor.id }]
+          });
+
+          const purchaseResponse = await fetch(`${baseUrl}/compras`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              documento: "FC-RECETA-SABOR-001",
+              proveedor: "Proveedor receta sabor",
+              fecha: "2026-05-04",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashOut: 20,
+              items: [{ id: raw.id, cantidad: 1, costo: 20, flavorId: flavor.id }]
+            })
+          });
+          assert.equal(purchaseResponse.status, 201);
+
+          const bucketResponse = await fetch(`${baseUrl}/baldes-control/abrir`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({ saborId: flavor.id, fechaApertura: "2026-05-04" })
+          });
+          assert.equal(bucketResponse.status, 201);
+
+          const saleResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              cliente: "Cliente receta sabor",
+              fecha: "2026-05-04",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 160,
+              items: [{ id: recipeProduct.id, cantidad: 2, precio: 80 }]
+            })
+          });
+          assert.equal(saleResponse.status, 201);
+          const saleResult = await saleResponse.json();
+          const ingredient = saleResult.venta.items[0].ingredientes[0];
+          assert.equal(ingredient.flavorId, flavor.id);
+          assert.equal(ingredient.cantidad, 6);
+
+          const inventory = await (await fetch(`${baseUrl}/inventario`, {
+            headers: authHeaders(token)
+          })).json();
+          assert.equal(inventory.productos.find(item => item.id === raw.id).stock, 14);
+
+          const bucketControls = await (await fetch(`${baseUrl}/baldes-control`, {
+            headers: authHeaders(token)
+          })).json();
+          const bucket = bucketControls.find(item => String(item.saborId) === String(flavor.id));
+          assert.equal(bucket.porcionesVendidas, 6);
+          assert.equal(bucket.ventasAsociadas, 1);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
     name: "venta con extra de materia prima descuenta el inventario enlazado",
     async run() {
       const { app, restore } = loadApp();

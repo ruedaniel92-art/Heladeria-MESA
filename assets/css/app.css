@@ -2745,7 +2745,7 @@
 
     .recipe-row {
       display: grid;
-      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) auto;
       gap: 12px;
       align-items: end;
       margin-bottom: 14px;
@@ -2767,7 +2767,7 @@
 
     .recipe-table-header {
       display: grid;
-      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) auto;
       gap: 12px;
       color: var(--muted);
       font-weight: 700;
@@ -2915,7 +2915,7 @@
 
     .recipe-row {
       display: grid;
-      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) auto;
       gap: 12px;
       align-items: center;
       padding: 14px 16px;

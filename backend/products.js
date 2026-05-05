@@ -94,6 +94,30 @@ function createProductHandlers({
         }
       }
 
+      const normalizedIngredientes = shouldUseRecipe
+        ? ingredientes.map(ing => {
+            const materia = (ing.id !== undefined && ing.id !== null)
+              ? productos.find(p => String(p.id) === String(ing.id))
+              : productos.find(p => p.nombre.toLowerCase() === ing.nombre.trim().toLowerCase());
+            const linkedFlavors = getSabores().filter(flavor => String(flavor.materiaPrimaId || "") === String(materia?.id || ""));
+            const flavorId = ing.flavorId !== undefined && ing.flavorId !== null ? String(ing.flavorId).trim() : "";
+            const flavor = flavorId ? linkedFlavors.find(item => String(item.id) === flavorId) : null;
+            if (linkedFlavors.length > 0 && !flavor) {
+              return null;
+            }
+            return {
+              id: materia.id,
+              nombre: materia.nombre,
+              cantidad: Number(ing.cantidad),
+              flavorId: flavor ? flavor.id : undefined,
+              flavorName: flavor ? flavor.nombre : undefined
+            };
+          })
+        : undefined;
+      if (Array.isArray(normalizedIngredientes) && normalizedIngredientes.some(ing => ing === null)) {
+        return res.status(400).json({ error: "Selecciona el sabor que aplica para cada materia prima vinculada a sabores." });
+      }
+
       const newProductData = {
         id: null,
         nombre: nombre.trim(),
@@ -102,7 +126,7 @@ function createProductHandlers({
         modoControl: normalizedMode,
         stockMin: computedStockMin,
         medida: normalizedType === "materia prima" ? medida : undefined,
-        ingredientes: shouldUseRecipe ? ingredientes : undefined,
+        ingredientes: normalizedIngredientes,
         controlSabores: shouldControlFlavors,
         rendimientoPorCompra: normalizedType === "materia prima" ? computedYield : undefined,
         pelotasPorUnidad: shouldControlFlavors ? computedScoops : undefined,
@@ -159,7 +183,7 @@ function createProductHandlers({
       }
 
       const hasPurchase = getCompras().some(compra => Array.isArray(compra.items) && compra.items.some(item => String(item.id) === String(id)));
-      const hasSale = getVentas().some(venta => Array.isArray(venta.items) && venta.items.some(item => String(item.id) === String(id) || (Array.isArray(item.componentes) && item.componentes.some(component => String(component.id) === String(id))) || (Array.isArray(item.sabores) && item.sabores.some(flavor => String(flavor.materiaPrimaId) === String(id))) || (Array.isArray(item.adicionales) && item.adicionales.some(adicional => String(adicional.materiaPrimaId) === String(id)))));
+      const hasSale = getVentas().some(venta => Array.isArray(venta.items) && venta.items.some(item => String(item.id) === String(id) || (Array.isArray(item.ingredientes) && item.ingredientes.some(ingredient => String(ingredient.id) === String(id))) || (Array.isArray(item.componentes) && item.componentes.some(component => String(component.id) === String(id))) || (Array.isArray(item.sabores) && item.sabores.some(flavor => String(flavor.materiaPrimaId) === String(id))) || (Array.isArray(item.adicionales) && item.adicionales.some(adicional => String(adicional.materiaPrimaId) === String(id)))));
       const hasInventoryMovement = getInventoryMovements().some(movement => String(movement.productoId) === String(id));
       const linkedFlavor = getSabores().some(flavor => String(flavor.materiaPrimaId) === String(id));
       const linkedTopping = getToppings().some(topping => String(topping.materiaPrimaId) === String(id));

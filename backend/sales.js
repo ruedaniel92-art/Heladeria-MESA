@@ -312,13 +312,35 @@ function createSalesHandlers({
               ? productos.find(entry => String(entry.id) === String(ingredient.id))
               : productos.find(entry => entry.nombre.toLowerCase() === String(ingredient.nombre || "").trim().toLowerCase());
             const consumoUnitario = Number(ingredient.cantidad || 0);
+            const flavorId = ingredient.flavorId !== undefined && ingredient.flavorId !== null ? String(ingredient.flavorId).trim() : "";
             if (!materiaPrima || Number.isNaN(consumoUnitario) || consumoUnitario <= 0) {
               return null;
             }
+            const linkedFlavor = flavorId
+              ? sabores.find(flavor => String(flavor.id) === flavorId && String(flavor.materiaPrimaId || "") === String(materiaPrima.id))
+              : null;
+            if (flavorId && !linkedFlavor) {
+              return null;
+            }
+            const cantidad = consumoUnitario * itemCantidad;
+            const activeBucket = linkedFlavor ? getActiveBucketForFlavor(linkedFlavor.id) : null;
+            if (linkedFlavor && (!activeBucket || getFlavorAvailableStock(linkedFlavor.id) < cantidad)) {
+              return null;
+            }
+            const bucketControl = activeBucket ? ensureConsumableControlSnapshot("bucket", activeBucket) : null;
+            const provisionalCosts = bucketControl ? getControlCostValues(bucketControl, false) : null;
             return {
               id: materiaPrima.id,
               nombre: materiaPrima.nombre,
-              cantidad: consumoUnitario * itemCantidad
+              cantidad,
+              flavorId: linkedFlavor ? linkedFlavor.id : null,
+              flavorName: linkedFlavor ? linkedFlavor.nombre : null,
+              baldeControlId: activeBucket ? activeBucket.id : null,
+              costoUnitarioProvisional: provisionalCosts ? provisionalCosts.unitCost : null,
+              costoTotalProvisional: provisionalCosts ? provisionalCosts.totalForQuantity(cantidad) : null,
+              costoUnitarioFinal: null,
+              costoTotalFinal: null,
+              costoEstado: linkedFlavor ? "provisional" : null
             };
           });
 
@@ -617,6 +639,18 @@ function createSalesHandlers({
             const materiaPrima = productos.find(entry => String(entry.id) === String(ingredient.id));
             if (materiaPrima) {
               materiaPrima.stock -= Number(ingredient.cantidad || 0);
+            }
+            const activeBucket = ingredient.baldeControlId
+              ? baldesControl.find(bucket => String(bucket.id) === String(ingredient.baldeControlId) && bucket.estado === "abierto")
+              : null;
+            if (activeBucket) {
+              activeBucket.porcionesVendidas += Number(ingredient.cantidad || 0);
+            }
+          });
+          [...new Set((item.ingredientes || []).map(ingredient => String(ingredient.baldeControlId || "")).filter(Boolean))].forEach(controlId => {
+            const activeBucket = baldesControl.find(bucket => String(bucket.id) === controlId && bucket.estado === "abierto");
+            if (activeBucket) {
+              activeBucket.ventasAsociadas += 1;
             }
           });
         }
@@ -977,7 +1011,10 @@ function createSalesHandlers({
         if (inventoryMode === "receta" || inventoryMode === "mixto" || (inventoryMode === "personalizado" && Array.isArray(item.ingredientes) && item.ingredientes.length > 0)) {
           (item.ingredientes || []).forEach(ingredient => {
             addStock(productos, ingredient.id, Number(ingredient.cantidad || 0), affectedProducts);
+            decrementControlMetric(baldesControl, ingredient.baldeControlId, "porcionesVendidas", Number(ingredient.cantidad || 0), affectedBuckets);
           });
+          [...new Set((item.ingredientes || []).map(ingredient => String(ingredient.baldeControlId || "")).filter(Boolean))]
+            .forEach(controlId => decrementControlMetric(baldesControl, controlId, "ventasAsociadas", 1, affectedBuckets));
         }
 
         if (inventoryMode === "personalizado") {

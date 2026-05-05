@@ -36,7 +36,8 @@ function normalizeIngredient(ing) {
   return {
     id: ing?.id !== undefined && ing?.id !== null ? String(ing.id) : "",
     nombre: String(ing?.nombre || "").trim().toLowerCase(),
-    cantidad: Number(ing?.cantidad) || 0
+    cantidad: Number(ing?.cantidad) || 0,
+    flavorId: ing?.flavorId !== undefined && ing?.flavorId !== null ? String(ing.flavorId) : ""
   };
 }
 
@@ -47,7 +48,7 @@ function ingredientsKey(ingredientes) {
     if (a.nombre !== b.nombre) return a.nombre.localeCompare(b.nombre);
     return a.cantidad - b.cantidad;
   });
-  return normalized.map(ing => `${ing.id}:${ing.nombre}:${ing.cantidad}`).join("|");
+  return normalized.map(ing => `${ing.id}:${ing.nombre}:${ing.cantidad}:${ing.flavorId}`).join("|");
 }
 
 function productIdentityKey(product) {
