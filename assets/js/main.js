@@ -2310,12 +2310,18 @@
         return total + items.reduce((sum, item) => {
           const addons = Array.isArray(item.adicionales) ? item.adicionales : [];
           const components = Array.isArray(item.componentes) ? item.componentes : [];
+          const ingredients = Array.isArray(item.ingredientes) ? item.ingredientes : [];
           const addonConsumption = addons.reduce((addonSum, addon) => {
             return String(addon.id || '') === normalizedToppingId
               ? addonSum + Number(addon.cantidad || 0)
               : addonSum;
           }, 0);
-          return sum + addonConsumption + components.reduce((componentSum, component) => {
+          const ingredientConsumption = ingredients.reduce((ingredientSum, ingredient) => {
+            return String(ingredient.toppingId || '') === normalizedToppingId
+              ? ingredientSum + Number(ingredient.cantidad || 0)
+              : ingredientSum;
+          }, 0);
+          return sum + addonConsumption + ingredientConsumption + components.reduce((componentSum, component) => {
             return String(component.sourceCategory || '') === 'topping' && String(component.sourceId || '') === normalizedToppingId
               ? componentSum + Number(component.cantidadTotal || component.cantidad || 0)
               : componentSum;
@@ -2385,12 +2391,18 @@
         return total + items.reduce((sum, item) => {
           const addons = Array.isArray(item.adicionales) ? item.adicionales : [];
           const components = Array.isArray(item.componentes) ? item.componentes : [];
+          const ingredients = Array.isArray(item.ingredientes) ? item.ingredientes : [];
           const addonConsumption = addons.reduce((addonSum, addon) => {
             return String(addon.id || '') === normalizedSauceId
               ? addonSum + Number(addon.cantidad || 0)
               : addonSum;
           }, 0);
-          return sum + addonConsumption + components.reduce((componentSum, component) => {
+          const ingredientConsumption = ingredients.reduce((ingredientSum, ingredient) => {
+            return String(ingredient.sauceId || '') === normalizedSauceId
+              ? ingredientSum + Number(ingredient.cantidad || 0)
+              : ingredientSum;
+          }, 0);
+          return sum + addonConsumption + ingredientConsumption + components.reduce((componentSum, component) => {
             return String(component.sourceCategory || '') === 'salsa' && String(component.sourceId || '') === normalizedSauceId
               ? componentSum + Number(component.cantidadTotal || component.cantidad || 0)
               : componentSum;
@@ -3091,39 +3103,52 @@
       `).join('');
     }
 
-    function getIngredientFlavorTargets(productId) {
-      return getFlavorsByRawMaterialId(productId);
+    function getIngredientLinkedTargets(productId) {
+      return getPurchaseLinkedTargets(findProductById(productId));
     }
 
-    function buildRecipeFlavorOptions(productId, selectedId = '') {
-      const targets = getIngredientFlavorTargets(productId);
+    function buildRecipeLinkedOptions(productId, selectedValue = '') {
+      const targets = getIngredientLinkedTargets(productId);
       if (!targets.length) {
-        return '<option value="">Sin sabores vinculados</option>';
+        return '<option value="">Sin vinculos</option>';
       }
-      return [
-        '<option value="">Seleccionar sabor</option>',
-        ...targets.map(flavor => `<option value="${escapeHtml(flavor.id)}" data-name="${escapeHtml(flavor.nombre)}" ${String(flavor.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(flavor.nombre)}</option>`)
-      ].join('');
+      return [`<option value="">Selecciona una opcion</option>`, ...targets.map(target => {
+        const value = `${target.type}:${target.id}`;
+        const label = target.type === 'flavor'
+          ? `${target.name} - sabor`
+          : target.type === 'topping'
+            ? `${target.name} - topping`
+            : `${target.name} - salsa/aderezo`;
+        return `<option value="${escapeHtml(value)}" data-type="${escapeHtml(target.type)}" data-id="${escapeHtml(target.id)}" data-name="${escapeHtml(target.name)}" ${value === selectedValue ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+      })].join('');
     }
 
-    function updateRecipeRowFlavorField(row, preferredFlavorId = '') {
+    function updateRecipeRowFlavorField(row, preferredLink = '') {
       const ingredientSelect = row.querySelector('.ingredient-source');
       const flavorField = row.querySelector('.ingredient-flavor-field');
       const flavorSelect = row.querySelector('.ingredient-flavor');
+      const flavorLabel = row.querySelector('.ingredient-flavor-label');
       if (!ingredientSelect || !flavorField || !flavorSelect) {
         return;
       }
       const productId = ingredientSelect.value;
-      const targets = getIngredientFlavorTargets(productId);
-      const currentValue = String(preferredFlavorId || flavorSelect.value || '').trim();
+      const product = findProductById(productId);
+      const targets = getIngredientLinkedTargets(productId);
+      const preferredValue = typeof preferredLink === 'object' && preferredLink?.type && preferredLink?.id
+        ? `${preferredLink.type}:${preferredLink.id}`
+        : String(preferredLink || '').trim();
+      const currentValue = preferredValue || String(flavorSelect.value || '').trim();
       const shouldShow = targets.length > 0;
+      if (flavorLabel) {
+        flavorLabel.textContent = getPurchaseLinkedTargetLabel(product);
+      }
       flavorField.classList.remove('field-hidden');
       flavorSelect.required = shouldShow;
       flavorSelect.disabled = !shouldShow;
-      flavorSelect.innerHTML = buildRecipeFlavorOptions(productId, currentValue);
+      flavorSelect.innerHTML = buildRecipeLinkedOptions(productId, currentValue);
       flavorSelect.value = currentValue;
       if (!flavorSelect.value && targets.length === 1) {
-        flavorSelect.value = String(targets[0].id);
+        flavorSelect.value = `${targets[0].type}:${targets[0].id}`;
       }
       if (!flavorSelect.value && currentValue) {
         flavorSelect.value = '';
@@ -3158,8 +3183,9 @@
           </select>
         </div>
         <div class="field ingredient-flavor-field">
+          <label class="ingredient-flavor-label">Asignar a</label>
           <select class="ingredient-flavor">
-            <option value="">Sin sabores vinculados</option>
+            <option value="">Sin vinculos</option>
           </select>
         </div>
         <div class="field">
@@ -7719,7 +7745,16 @@
           ingSelect.value = ing.id || ing.nombre;
           lastRow.querySelector('.ingredient-amount').value = Number(ing.cantidad);
           updateIngredientUnit({ currentTarget: ingSelect });
-          updateRecipeRowFlavorField(lastRow, ing.flavorId || '');
+          const selectedLink = ing.linkedType && ing.linkedId
+            ? `${ing.linkedType}:${ing.linkedId}`
+            : ing.flavorId
+              ? `flavor:${ing.flavorId}`
+              : ing.toppingId
+                ? `topping:${ing.toppingId}`
+                : ing.sauceId
+                  ? `sauce:${ing.sauceId}`
+                  : '';
+          updateRecipeRowFlavorField(lastRow, selectedLink);
         });
       }
       productModalTitle.textContent = 'Editar producto';
@@ -8515,10 +8550,23 @@
           const cantidad = Number(row.querySelector('.ingredient-amount').value);
           const id = select.value;
           const nombre = select.selectedOptions[0]?.dataset.name || select.value;
-          const flavorId = String(flavorSelect?.value || '').trim();
-          const flavorName = flavorId ? (flavorSelect.selectedOptions[0]?.dataset.name || '') : '';
+          const linkedTarget = parseLinkedTargetValue(flavorSelect?.value || '');
+          const linkedName = linkedTarget.id ? (flavorSelect.selectedOptions[0]?.dataset.name || '') : '';
           if (id && nombre) {
-            ingredientes.push({ id, nombre, cantidad, flavorId: flavorId || undefined, flavorName: flavorName || undefined });
+            ingredientes.push({
+              id,
+              nombre,
+              cantidad,
+              linkedType: linkedTarget.type || undefined,
+              linkedId: linkedTarget.id || undefined,
+              linkedName: linkedName || undefined,
+              flavorId: linkedTarget.type === 'flavor' ? linkedTarget.id : undefined,
+              flavorName: linkedTarget.type === 'flavor' ? linkedName : undefined,
+              toppingId: linkedTarget.type === 'topping' ? linkedTarget.id : undefined,
+              toppingName: linkedTarget.type === 'topping' ? linkedName : undefined,
+              sauceId: linkedTarget.type === 'sauce' ? linkedTarget.id : undefined,
+              sauceName: linkedTarget.type === 'sauce' ? linkedName : undefined
+            });
           }
         });
       }
@@ -8565,12 +8613,12 @@
         showError('Agrega al menos un ingrediente para los productos con receta.');
         return;
       }
-      const missingRecipeFlavor = usesProductRecipe && Array.isArray(newProduct.ingredientes)
-        ? newProduct.ingredientes.find(ing => getIngredientFlavorTargets(ing.id).length && !ing.flavorId)
+      const missingRecipeLink = usesProductRecipe && Array.isArray(newProduct.ingredientes)
+        ? newProduct.ingredientes.find(ing => getIngredientLinkedTargets(ing.id).length && !ing.linkedId)
         : null;
-      if (missingRecipeFlavor) {
-        setProductStatus(`Selecciona el sabor que aplica para ${missingRecipeFlavor.nombre}.`, { error: true });
-        showError(`Selecciona el sabor que aplica para ${missingRecipeFlavor.nombre}.`);
+      if (missingRecipeLink) {
+        setProductStatus(`Selecciona el vinculo que aplica para ${missingRecipeLink.nombre}.`, { error: true });
+        showError(`Selecciona el vinculo que aplica para ${missingRecipeLink.nombre}.`);
         return;
       }
       if ((controlMode === 'helado-sabores' || controlMode === 'mixto') && (!Number.isInteger(newProduct.pelotasPorUnidad) || newProduct.pelotasPorUnidad <= 0)) {

@@ -170,10 +170,15 @@ function createConsumableHelpers({
       const items = Array.isArray(venta.items) ? venta.items : [];
       return total + items.reduce((sum, item) => {
         const adicionales = Array.isArray(item.adicionales) ? item.adicionales : [];
+        const ingredientes = Array.isArray(item.ingredientes) ? item.ingredientes : [];
         return sum + adicionales.reduce((addonsSum, adicional) => {
           return String(adicional.id || '') === normalizedToppingId
             ? addonsSum + Number(adicional.cantidad || 0)
             : addonsSum;
+        }, 0) + ingredientes.reduce((ingredientsSum, ingredient) => {
+          return String(ingredient.toppingId || '') === normalizedToppingId
+            ? ingredientsSum + Number(ingredient.cantidad || 0)
+            : ingredientsSum;
         }, 0);
       }, 0);
     }, 0);
@@ -235,10 +240,15 @@ function createConsumableHelpers({
       const items = Array.isArray(venta.items) ? venta.items : [];
       return total + items.reduce((sum, item) => {
         const adicionales = Array.isArray(item.adicionales) ? item.adicionales : [];
+        const ingredientes = Array.isArray(item.ingredientes) ? item.ingredientes : [];
         return sum + adicionales.reduce((addonsSum, adicional) => {
           return String(adicional.id || '') === normalizedSauceId
             ? addonsSum + Number(adicional.cantidad || 0)
             : addonsSum;
+        }, 0) + ingredientes.reduce((ingredientsSum, ingredient) => {
+          return String(ingredient.sauceId || '') === normalizedSauceId
+            ? ingredientsSum + Number(ingredient.cantidad || 0)
+            : ingredientsSum;
         }, 0);
       }, 0);
     }, 0);
@@ -554,6 +564,23 @@ function createConsumableHelpers({
           return;
         }
   
+        const ingredientesItem = Array.isArray(item.ingredientes) ? item.ingredientes : [];
+        ingredientesItem.forEach(ingredient => {
+          if (String(ingredient[config.controlLinkField] || '') !== String(control.id)) {
+            return;
+          }
+          const costValues = getControlCostValues(control, true);
+          ingredient.costoUnitarioFinal = costValues.unitCost;
+          ingredient.costoTotalFinal = costValues.totalForQuantity(ingredient.cantidad);
+          if (ingredient.costoUnitarioProvisional === undefined || ingredient.costoUnitarioProvisional === null) {
+            const provisionalValues = getControlCostValues(control, false);
+            ingredient.costoUnitarioProvisional = provisionalValues.unitCost;
+            ingredient.costoTotalProvisional = provisionalValues.totalForQuantity(ingredient.cantidad);
+          }
+          ingredient.costoEstado = 'final';
+          saleTouched = true;
+        });
+
         const addons = Array.isArray(item.adicionales) ? item.adicionales : [];
         addons.forEach(addon => {
           if (String(addon[config.controlLinkField] || '') !== String(control.id)) {

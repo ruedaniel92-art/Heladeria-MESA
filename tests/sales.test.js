@@ -765,6 +765,166 @@ module.exports = [
     }
   },
   {
+    name: "venta de receta rechaza sabor definido sin balde abierto",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          async function createProduct(payload) {
+            const response = await fetch(`${baseUrl}/productos`, {
+              method: "POST",
+              headers: jsonAuthHeaders(token),
+              body: JSON.stringify(payload)
+            });
+            assert.equal(response.status, 201);
+            return (await response.json()).producto;
+          }
+
+          const raw = await createProduct({
+            nombre: "Base receta fresa cerrada",
+            tipo: "materia prima",
+            stockMin: 1,
+            medida: "porcion",
+            rendimientoPorCompra: 20
+          });
+
+          const flavorResponse = await fetch(`${baseUrl}/sabores`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({ nombre: "Fresa receta cerrada", materiaPrimaId: raw.id })
+          });
+          assert.equal(flavorResponse.status, 201);
+          const flavor = (await flavorResponse.json()).sabor;
+
+          const recipeProduct = await createProduct({
+            nombre: "Batido receta fresa",
+            tipo: "producto terminado",
+            stockMin: 0,
+            precio: 80,
+            modoControl: "receta",
+            ingredientes: [{ id: raw.id, nombre: raw.nombre, cantidad: 3, flavorId: flavor.id }]
+          });
+
+          const purchaseResponse = await fetch(`${baseUrl}/compras`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              documento: "FC-RECETA-SABOR-CERRADO-001",
+              proveedor: "Proveedor receta sabor cerrado",
+              fecha: "2026-05-04",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashOut: 20,
+              items: [{ id: raw.id, cantidad: 1, costo: 20, flavorId: flavor.id }]
+            })
+          });
+          assert.equal(purchaseResponse.status, 201);
+
+          const saleResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              cliente: "Cliente receta sabor cerrado",
+              fecha: "2026-05-04",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 80,
+              items: [{ id: recipeProduct.id, cantidad: 1, precio: 80 }]
+            })
+          });
+          assert.equal(saleResponse.status, 400);
+          const saleResult = await saleResponse.json();
+          assert.match(saleResult.error, /no tiene balde abierto/i);
+          assert.match(saleResult.error, /Fresa receta cerrada/);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
+    name: "venta de receta rechaza topping definido sin control abierto",
+    async run() {
+      const { app, restore } = loadApp();
+      try {
+        await withServer(app, async baseUrl => {
+          const token = await bootstrapAdmin(baseUrl);
+
+          async function createProduct(payload) {
+            const response = await fetch(`${baseUrl}/productos`, {
+              method: "POST",
+              headers: jsonAuthHeaders(token),
+              body: JSON.stringify(payload)
+            });
+            assert.equal(response.status, 201);
+            return (await response.json()).producto;
+          }
+
+          const raw = await createProduct({
+            nombre: "Base receta mani cerrada",
+            tipo: "materia prima",
+            stockMin: 1,
+            medida: "porcion",
+            rendimientoPorCompra: 20
+          });
+
+          const toppingResponse = await fetch(`${baseUrl}/toppings`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({ nombre: "Mani receta cerrado", materiaPrimaId: raw.id })
+          });
+          assert.equal(toppingResponse.status, 201);
+          const topping = (await toppingResponse.json()).topping;
+
+          const recipeProduct = await createProduct({
+            nombre: "Copa receta mani",
+            tipo: "producto terminado",
+            stockMin: 0,
+            precio: 80,
+            modoControl: "receta",
+            ingredientes: [{ id: raw.id, nombre: raw.nombre, cantidad: 3, toppingId: topping.id }]
+          });
+
+          const purchaseResponse = await fetch(`${baseUrl}/compras`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              documento: "FC-RECETA-TOPPING-CERRADO-001",
+              proveedor: "Proveedor receta topping cerrado",
+              fecha: "2026-05-04",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashOut: 20,
+              items: [{ id: raw.id, cantidad: 1, costo: 20, toppingId: topping.id }]
+            })
+          });
+          assert.equal(purchaseResponse.status, 201);
+
+          const saleResponse = await fetch(`${baseUrl}/ventas`, {
+            method: "POST",
+            headers: jsonAuthHeaders(token),
+            body: JSON.stringify({
+              cliente: "Cliente receta topping cerrado",
+              fecha: "2026-05-04",
+              paymentType: "contado",
+              paymentMethod: "efectivo",
+              cashReceived: 80,
+              items: [{ id: recipeProduct.id, cantidad: 1, precio: 80 }]
+            })
+          });
+          assert.equal(saleResponse.status, 400);
+          const saleResult = await saleResponse.json();
+          assert.match(saleResult.error, /no esta abierto/i);
+          assert.match(saleResult.error, /Mani receta cerrado/);
+        });
+      } finally {
+        restore();
+      }
+    }
+  },
+  {
     name: "venta con extra de materia prima descuenta el inventario enlazado",
     async run() {
       const { app, restore } = loadApp();

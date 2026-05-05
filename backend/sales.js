@@ -123,6 +123,7 @@ function createSalesHandlers({
         return res.status(400).json({ error: "Monto recibido inválido para ventas de contado." });
       }
 
+      let saleValidationError = "";
       const validatedItems = invoiceItems.map(item => {
         const itemId = item.id !== undefined && item.id !== null ? String(item.id) : "";
         const itemNombre = String(item.nombre || "").trim();
@@ -312,35 +313,87 @@ function createSalesHandlers({
               ? productos.find(entry => String(entry.id) === String(ingredient.id))
               : productos.find(entry => entry.nombre.toLowerCase() === String(ingredient.nombre || "").trim().toLowerCase());
             const consumoUnitario = Number(ingredient.cantidad || 0);
-            const flavorId = ingredient.flavorId !== undefined && ingredient.flavorId !== null ? String(ingredient.flavorId).trim() : "";
+            const linkedType = ingredient.linkedType !== undefined && ingredient.linkedType !== null ? String(ingredient.linkedType).trim() : "";
+            const linkedId = ingredient.linkedId !== undefined && ingredient.linkedId !== null ? String(ingredient.linkedId).trim() : "";
+            const flavorId = ingredient.flavorId !== undefined && ingredient.flavorId !== null ? String(ingredient.flavorId).trim() : linkedType === "flavor" ? linkedId : "";
+            const toppingId = ingredient.toppingId !== undefined && ingredient.toppingId !== null ? String(ingredient.toppingId).trim() : linkedType === "topping" ? linkedId : "";
+            const sauceId = ingredient.sauceId !== undefined && ingredient.sauceId !== null ? String(ingredient.sauceId).trim() : linkedType === "sauce" ? linkedId : "";
             if (!materiaPrima || Number.isNaN(consumoUnitario) || consumoUnitario <= 0) {
               return null;
             }
             const linkedFlavor = flavorId
               ? sabores.find(flavor => String(flavor.id) === flavorId && String(flavor.materiaPrimaId || "") === String(materiaPrima.id))
               : null;
-            if (flavorId && !linkedFlavor) {
+            const linkedTopping = toppingId
+              ? toppings.find(topping => String(topping.id) === toppingId && String(topping.materiaPrimaId || "") === String(materiaPrima.id))
+              : null;
+            const linkedSauce = sauceId
+              ? salsas.find(sauce => String(sauce.id) === sauceId && String(sauce.materiaPrimaId || "") === String(materiaPrima.id))
+              : null;
+            if ((flavorId && !linkedFlavor) || (toppingId && !linkedTopping) || (sauceId && !linkedSauce)) {
               return null;
             }
             const cantidad = consumoUnitario * itemCantidad;
             const activeBucket = linkedFlavor ? getActiveBucketForFlavor(linkedFlavor.id) : null;
-            if (linkedFlavor && (!activeBucket || getFlavorAvailableStock(linkedFlavor.id) < cantidad)) {
+            if (linkedFlavor && !activeBucket) {
+              saleValidationError = `No se puede vender ${producto.nombre}: el sabor ${linkedFlavor.nombre} de la receta no tiene balde abierto.`;
+              return null;
+            }
+            const activeToppingControl = linkedTopping ? getActiveToppingControlForTopping(linkedTopping.id) : null;
+            if (linkedTopping && !activeToppingControl) {
+              saleValidationError = `No se puede vender ${producto.nombre}: el topping ${linkedTopping.nombre} de la receta no esta abierto.`;
+              return null;
+            }
+            const activeSauceControl = linkedSauce ? getActiveSauceControlForSauce(linkedSauce.id) : null;
+            if (linkedSauce && !activeSauceControl) {
+              saleValidationError = `No se puede vender ${producto.nombre}: la salsa ${linkedSauce.nombre} de la receta no esta abierta.`;
+              return null;
+            }
+            if (linkedFlavor && getFlavorAvailableStock(linkedFlavor.id) < cantidad) {
+              saleValidationError = `No hay stock suficiente del sabor ${linkedFlavor.nombre} para vender ${producto.nombre}.`;
+              return null;
+            }
+            if (linkedTopping && getToppingAvailableStock(linkedTopping.id) < cantidad) {
+              saleValidationError = `No hay stock suficiente del topping ${linkedTopping.nombre} para vender ${producto.nombre}.`;
+              return null;
+            }
+            if (linkedSauce && getSauceAvailableStock(linkedSauce.id) < cantidad) {
+              saleValidationError = `No hay stock suficiente de la salsa ${linkedSauce.nombre} para vender ${producto.nombre}.`;
               return null;
             }
             const bucketControl = activeBucket ? ensureConsumableControlSnapshot("bucket", activeBucket) : null;
-            const provisionalCosts = bucketControl ? getControlCostValues(bucketControl, false) : null;
+            const toppingControl = activeToppingControl ? ensureConsumableControlSnapshot("topping", activeToppingControl) : null;
+            const sauceControl = activeSauceControl ? ensureConsumableControlSnapshot("sauce", activeSauceControl) : null;
+            const provisionalControl = bucketControl || toppingControl || sauceControl;
+            const provisionalCosts = provisionalControl ? getControlCostValues(provisionalControl, false) : null;
+            const normalizedLink = linkedFlavor
+              ? { type: "flavor", id: linkedFlavor.id, name: linkedFlavor.nombre }
+              : linkedTopping
+                ? { type: "topping", id: linkedTopping.id, name: linkedTopping.nombre }
+                : linkedSauce
+                  ? { type: "sauce", id: linkedSauce.id, name: linkedSauce.nombre }
+                  : null;
             return {
               id: materiaPrima.id,
               nombre: materiaPrima.nombre,
               cantidad,
+              linkedType: normalizedLink ? normalizedLink.type : null,
+              linkedId: normalizedLink ? normalizedLink.id : null,
+              linkedName: normalizedLink ? normalizedLink.name : null,
               flavorId: linkedFlavor ? linkedFlavor.id : null,
               flavorName: linkedFlavor ? linkedFlavor.nombre : null,
+              toppingId: linkedTopping ? linkedTopping.id : null,
+              toppingName: linkedTopping ? linkedTopping.nombre : null,
+              sauceId: linkedSauce ? linkedSauce.id : null,
+              sauceName: linkedSauce ? linkedSauce.nombre : null,
               baldeControlId: activeBucket ? activeBucket.id : null,
+              toppingControlId: activeToppingControl ? activeToppingControl.id : null,
+              sauceControlId: activeSauceControl ? activeSauceControl.id : null,
               costoUnitarioProvisional: provisionalCosts ? provisionalCosts.unitCost : null,
               costoTotalProvisional: provisionalCosts ? provisionalCosts.totalForQuantity(cantidad) : null,
               costoUnitarioFinal: null,
               costoTotalFinal: null,
-              costoEstado: linkedFlavor ? "provisional" : null
+              costoEstado: normalizedLink ? "provisional" : null
             };
           });
 
@@ -596,7 +649,7 @@ function createSalesHandlers({
       });
 
       if (validatedItems.some(item => item === null)) {
-        return res.status(400).json({ error: "Cada item debe tener producto válido, stock suficiente, cantidad y precio." });
+        return res.status(400).json({ error: saleValidationError || "Cada item debe tener producto válido, stock suficiente, cantidad y precio." });
       }
 
       const componentConsumptionById = new Map();
@@ -646,11 +699,35 @@ function createSalesHandlers({
             if (activeBucket) {
               activeBucket.porcionesVendidas += Number(ingredient.cantidad || 0);
             }
+            const activeToppingControl = ingredient.toppingControlId
+              ? toppingControls.find(control => String(control.id) === String(ingredient.toppingControlId) && control.estado === "abierto")
+              : null;
+            if (activeToppingControl) {
+              activeToppingControl.porcionesVendidas += Number(ingredient.cantidad || 0);
+            }
+            const activeSauceControl = ingredient.sauceControlId
+              ? sauceControls.find(control => String(control.id) === String(ingredient.sauceControlId) && control.estado === "abierto")
+              : null;
+            if (activeSauceControl) {
+              activeSauceControl.porcionesVendidas += Number(ingredient.cantidad || 0);
+            }
           });
           [...new Set((item.ingredientes || []).map(ingredient => String(ingredient.baldeControlId || "")).filter(Boolean))].forEach(controlId => {
             const activeBucket = baldesControl.find(bucket => String(bucket.id) === controlId && bucket.estado === "abierto");
             if (activeBucket) {
               activeBucket.ventasAsociadas += 1;
+            }
+          });
+          [...new Set((item.ingredientes || []).map(ingredient => String(ingredient.toppingControlId || "")).filter(Boolean))].forEach(controlId => {
+            const activeToppingControl = toppingControls.find(control => String(control.id) === controlId && control.estado === "abierto");
+            if (activeToppingControl) {
+              activeToppingControl.ventasAsociadas += 1;
+            }
+          });
+          [...new Set((item.ingredientes || []).map(ingredient => String(ingredient.sauceControlId || "")).filter(Boolean))].forEach(controlId => {
+            const activeSauceControl = sauceControls.find(control => String(control.id) === controlId && control.estado === "abierto");
+            if (activeSauceControl) {
+              activeSauceControl.ventasAsociadas += 1;
             }
           });
         }
@@ -1012,9 +1089,15 @@ function createSalesHandlers({
           (item.ingredientes || []).forEach(ingredient => {
             addStock(productos, ingredient.id, Number(ingredient.cantidad || 0), affectedProducts);
             decrementControlMetric(baldesControl, ingredient.baldeControlId, "porcionesVendidas", Number(ingredient.cantidad || 0), affectedBuckets);
+            decrementControlMetric(toppingControls, ingredient.toppingControlId, "porcionesVendidas", Number(ingredient.cantidad || 0), affectedToppingControls);
+            decrementControlMetric(sauceControls, ingredient.sauceControlId, "porcionesVendidas", Number(ingredient.cantidad || 0), affectedSauceControls);
           });
           [...new Set((item.ingredientes || []).map(ingredient => String(ingredient.baldeControlId || "")).filter(Boolean))]
             .forEach(controlId => decrementControlMetric(baldesControl, controlId, "ventasAsociadas", 1, affectedBuckets));
+          [...new Set((item.ingredientes || []).map(ingredient => String(ingredient.toppingControlId || "")).filter(Boolean))]
+            .forEach(controlId => decrementControlMetric(toppingControls, controlId, "ventasAsociadas", 1, affectedToppingControls));
+          [...new Set((item.ingredientes || []).map(ingredient => String(ingredient.sauceControlId || "")).filter(Boolean))]
+            .forEach(controlId => decrementControlMetric(sauceControls, controlId, "ventasAsociadas", 1, affectedSauceControls));
         }
 
         if (inventoryMode === "personalizado") {

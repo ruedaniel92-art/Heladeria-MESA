@@ -37,7 +37,9 @@ function normalizeIngredient(ing) {
     id: ing?.id !== undefined && ing?.id !== null ? String(ing.id) : "",
     nombre: String(ing?.nombre || "").trim().toLowerCase(),
     cantidad: Number(ing?.cantidad) || 0,
-    flavorId: ing?.flavorId !== undefined && ing?.flavorId !== null ? String(ing.flavorId) : ""
+    flavorId: ing?.flavorId !== undefined && ing?.flavorId !== null ? String(ing.flavorId) : "",
+    toppingId: ing?.toppingId !== undefined && ing?.toppingId !== null ? String(ing.toppingId) : "",
+    sauceId: ing?.sauceId !== undefined && ing?.sauceId !== null ? String(ing.sauceId) : ""
   };
 }
 
@@ -48,7 +50,7 @@ function ingredientsKey(ingredientes) {
     if (a.nombre !== b.nombre) return a.nombre.localeCompare(b.nombre);
     return a.cantidad - b.cantidad;
   });
-  return normalized.map(ing => `${ing.id}:${ing.nombre}:${ing.cantidad}:${ing.flavorId}`).join("|");
+  return normalized.map(ing => `${ing.id}:${ing.nombre}:${ing.cantidad}:${ing.flavorId}:${ing.toppingId}:${ing.sauceId}`).join("|");
 }
 
 function productIdentityKey(product) {

@@ -100,22 +100,46 @@ function createProductHandlers({
               ? productos.find(p => String(p.id) === String(ing.id))
               : productos.find(p => p.nombre.toLowerCase() === ing.nombre.trim().toLowerCase());
             const linkedFlavors = getSabores().filter(flavor => String(flavor.materiaPrimaId || "") === String(materia?.id || ""));
-            const flavorId = ing.flavorId !== undefined && ing.flavorId !== null ? String(ing.flavorId).trim() : "";
+            const linkedToppings = getToppings().filter(topping => String(topping.materiaPrimaId || "") === String(materia?.id || ""));
+            const linkedSauces = getSalsas().filter(sauce => String(sauce.materiaPrimaId || "") === String(materia?.id || ""));
+            const linkedType = ing.linkedType !== undefined && ing.linkedType !== null ? String(ing.linkedType).trim() : "";
+            const linkedId = ing.linkedId !== undefined && ing.linkedId !== null ? String(ing.linkedId).trim() : "";
+            const flavorId = ing.flavorId !== undefined && ing.flavorId !== null ? String(ing.flavorId).trim() : linkedType === "flavor" ? linkedId : "";
+            const toppingId = ing.toppingId !== undefined && ing.toppingId !== null ? String(ing.toppingId).trim() : linkedType === "topping" ? linkedId : "";
+            const sauceId = ing.sauceId !== undefined && ing.sauceId !== null ? String(ing.sauceId).trim() : linkedType === "sauce" ? linkedId : "";
+            const selectedLinksCount = [flavorId, toppingId, sauceId].filter(Boolean).length;
             const flavor = flavorId ? linkedFlavors.find(item => String(item.id) === flavorId) : null;
-            if (linkedFlavors.length > 0 && !flavor) {
+            const topping = toppingId ? linkedToppings.find(item => String(item.id) === toppingId) : null;
+            const sauce = sauceId ? linkedSauces.find(item => String(item.id) === sauceId) : null;
+            if ((linkedFlavors.length > 0 || linkedToppings.length > 0 || linkedSauces.length > 0)
+              && (selectedLinksCount !== 1 || (!flavor && !topping && !sauce))) {
               return null;
             }
+            const normalizedLink = flavor
+              ? { type: "flavor", id: flavor.id, name: flavor.nombre }
+              : topping
+                ? { type: "topping", id: topping.id, name: topping.nombre }
+                : sauce
+                  ? { type: "sauce", id: sauce.id, name: sauce.nombre }
+                  : null;
             return {
               id: materia.id,
               nombre: materia.nombre,
               cantidad: Number(ing.cantidad),
+              linkedType: normalizedLink ? normalizedLink.type : undefined,
+              linkedId: normalizedLink ? normalizedLink.id : undefined,
+              linkedName: normalizedLink ? normalizedLink.name : undefined,
               flavorId: flavor ? flavor.id : undefined,
-              flavorName: flavor ? flavor.nombre : undefined
+              flavorName: flavor ? flavor.nombre : undefined,
+              toppingId: topping ? topping.id : undefined,
+              toppingName: topping ? topping.nombre : undefined,
+              sauceId: sauce ? sauce.id : undefined,
+              sauceName: sauce ? sauce.nombre : undefined
             };
           })
         : undefined;
       if (Array.isArray(normalizedIngredientes) && normalizedIngredientes.some(ing => ing === null)) {
-        return res.status(400).json({ error: "Selecciona el sabor que aplica para cada materia prima vinculada a sabores." });
+        return res.status(400).json({ error: "Selecciona el vinculo que aplica para cada materia prima vinculada a sabores, toppings o salsas." });
       }
 
       const newProductData = {

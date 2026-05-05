@@ -210,7 +210,7 @@ function createFlavorCatalogHandlers({
         return res.status(404).json({ error: "Topping no encontrado." });
       }
 
-      const hasSales = getVentas().some(venta => Array.isArray(venta.items) && venta.items.some(item => Array.isArray(item.adicionales) && item.adicionales.some(adicional => String(adicional.id) === String(id))));
+      const hasSales = getVentas().some(venta => Array.isArray(venta.items) && venta.items.some(item => (Array.isArray(item.adicionales) && item.adicionales.some(adicional => String(adicional.id) === String(id))) || (Array.isArray(item.ingredientes) && item.ingredientes.some(ingredient => String(ingredient.toppingId) === String(id)))));
       const hasToppingControl = getToppingControls().some(control => String(control.toppingId) === String(id));
       if (hasSales || hasToppingControl) {
         return res.status(400).json({ error: "No se puede eliminar un topping usado en ventas." });
@@ -230,7 +230,7 @@ function createFlavorCatalogHandlers({
         return res.status(404).json({ error: "Salsa/aderezo no encontrado." });
       }
 
-      const hasSales = getVentas().some(venta => Array.isArray(venta.items) && venta.items.some(item => Array.isArray(item.adicionales) && item.adicionales.some(adicional => String(adicional.id) === String(id))));
+      const hasSales = getVentas().some(venta => Array.isArray(venta.items) && venta.items.some(item => (Array.isArray(item.adicionales) && item.adicionales.some(adicional => String(adicional.id) === String(id))) || (Array.isArray(item.ingredientes) && item.ingredientes.some(ingredient => String(ingredient.sauceId) === String(id)))));
       const hasSauceControl = getSauceControls().some(control => String(control.sauceId) === String(id));
       if (hasSales || hasSauceControl) {
         return res.status(400).json({ error: "No se puede eliminar una salsa/aderezo usado en ventas." });
